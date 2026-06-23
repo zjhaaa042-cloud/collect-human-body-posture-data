@@ -1,0 +1,4 @@
+# This file is used to retain the directory in git
+# Download Vosk Chinese model to this directory
+# Model: vosk-model-cn-0.22
+# URL: https://alphacephei.com/vosk/models

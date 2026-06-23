@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+*.egg-info/
+
+# Node.js
+node_modules/
+
+# Data
+data/sessions/
+models/vosk-model-small-cn-0.22/
+
+# Temp
+temp/
+
+# Logs
+*.log
+
+# Config
+config.json
+.env
+
+# OS
+.DS_Store
+Thumbs.db

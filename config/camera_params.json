@@ -1,0 +1,22 @@
+{
+	"color_auto_exposure": 1,
+	"color_auto_white_balance": 1,
+	"color_backlight_compensation": 1,
+	"color_brightness": 0,
+	"color_contrast": 50,
+	"color_exposure_time": 156,
+	"color_gain": 16,
+	"color_gamma": 300,
+	"color_hue": 0,
+	"color_power_line_frequency": 2,
+	"color_saturation": 64,
+	"color_sharpness": 50,
+	"color_white_balance": 4600,
+	"depth_alg_mode": "Default",
+	"depth_auto_exposure": 1,
+	"depth_exposure_time": 3000,
+	"depth_gain": 16,
+	"laser_power_level": 6,
+	"laser_state": 1,
+	"target_mean_intensity": 60
+}

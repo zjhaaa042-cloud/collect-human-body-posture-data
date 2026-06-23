@@ -1,0 +1,63 @@
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 20px;
+  background: var(--bg-secondary);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+}
+
+.status-left,
+.status-right {
+  display: flex;
+  align-items: center;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-item .anticon {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.status-item .ant-tag {
+  margin: 0;
+  border: none;
+  padding: 1px 6px;
+  line-height: 1.4;
+  font-size: 12px;
+}
+
+.voice-section {
+  gap: 8px;
+}
+
+.voice-indicator {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+  padding: 0 2px;
+}
+
+.voice-bar {
+  width: 3px;
+  background: var(--text-tertiary);
+  border-radius: 1.5px;
+  transition: height 0.05s ease;
+}
+
+.voice-indicator.active .voice-bar {
+  background: var(--primary);
+  box-shadow: 0 0 4px rgba(255, 105, 0, 0.5);
+}
+
+.version-text {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}

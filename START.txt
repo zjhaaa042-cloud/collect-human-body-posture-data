@@ -1,0 +1,29 @@
+==========================================
+  Body Posture Data Collection System
+==========================================
+
+QUICK START
+-----------
+Double-click: go.bat
+
+This starts both backend and frontend.
+
+
+MANUAL START
+------------
+1. run.bat          (start backend)
+2. run_frontend.bat (start frontend, new terminal)
+
+
+URLs
+----
+Backend:  ws://localhost:8765
+Frontend: http://localhost:3000
+
+
+VOICE COMMANDS
+--------------
+"开始采集" - Start capture
+"停止"     - Stop
+"下一个"   - Next
+"完成"     - Finish

@@ -1,0 +1,247 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ConfigProvider, theme, Layout, Typography, Space, Button, message, Modal } from 'antd';
+import { SettingOutlined, QuestionCircleOutlined, PoweroffOutlined } from '@ant-design/icons';
+import PreviewPanel from './components/PreviewPanel';
+import ControlPanel from './components/ControlPanel';
+import StatusBar from './components/StatusBar';
+import './styles/App.css';
+
+const { Header, Content, Footer } = Layout;
+const { Title } = Typography;
+
+const WS_URL = 'ws://localhost:8765';
+
+function App() {
+  const [connected, setConnected] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+  const [distanceInfo, setDistanceInfo] = useState(null);
+  const [captureResult, setCaptureResult] = useState(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [captureCount, setCaptureCount] = useState(0);
+  const [sessionId, setSessionId] = useState(null);
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const wsRef = useRef(null);
+
+  const connectWebSocket = useCallback(() => {
+    try {
+      const ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        setConnected(true);
+        message.success('已连接到采集系统');
+        ws.send(JSON.stringify({ type: 'start_preview' }));
+        ws.send(JSON.stringify({ type: 'get_sessions' }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          switch (data.type) {
+            case 'preview_frame':
+              setPreviewData(data.data);
+              if (data.data.distance) {
+                setDistanceInfo(data.data.distance);
+              }
+              break;
+            case 'distance_update':
+              setDistanceInfo(data.data);
+              break;
+            case 'capture_result':
+              setCaptureResult(data.data);
+              if (data.data.success) {
+                setCaptureCount(prev => prev + 1);
+                message.success('采集成功');
+              } else {
+                message.error('采集失败: ' + data.data.error);
+              }
+              setIsCapturing(false);
+              break;
+            case 'session_created':
+              setSessionId(data.data.session_id);
+              message.success('会话已创建');
+              ws.send(JSON.stringify({ type: 'get_sessions' }));
+              break;
+            case 'session_finished':
+              message.info(`采集完成，共采集 ${data.data.capture_count} 组数据`);
+              break;
+            case 'voice_activity':
+              setVoiceActive(data.data.active);
+              break;
+            case 'session_list':
+              setSessions(data.data.sessions || []);
+              break;
+            case 'exit_confirm':
+              message.info(data.data.message);
+              break;
+            default:
+              break;
+          }
+        } catch (e) {
+          console.error('Failed to parse message:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        message.warning('连接已断开，正在重连...');
+        setTimeout(connectWebSocket, 3000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        message.error('连接错误');
+      };
+
+      wsRef.current = ws;
+    } catch (e) {
+      console.error('Failed to connect:', e);
+      message.error('连接失败');
+    }
+  }, []);
+
+  useEffect(() => {
+    connectWebSocket();
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [connectWebSocket]);
+
+  const sendCommand = useCallback((type, data = {}) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type, ...data }));
+    }
+  }, []);
+
+  const handleCapture = useCallback(() => {
+    setIsCapturing(true);
+    sendCommand('capture_single');
+  }, [sendCommand]);
+
+  const handleCreateSession = useCallback((sessionName) => {
+    sendCommand('create_session', { session_name: sessionName });
+  }, [sendCommand]);
+
+  const handleSelectSession = useCallback((sessionId) => {
+    sendCommand('select_session', { session_name: sessionId });
+  }, [sendCommand]);
+
+  const handleFinishSession = useCallback(() => {
+    sendCommand('speak', { text: '采集完成' });
+    sendCommand('finish_session');
+  }, [sendCommand]);
+
+  const handleRefreshSessions = useCallback(() => {
+    sendCommand('get_sessions');
+  }, [sendCommand]);
+
+  const handleExit = useCallback(() => {
+    Modal.confirm({
+      title: '确认退出',
+      content: '确定要关闭采集系统吗？',
+      okText: '确定退出',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => {
+        sendCommand('exit_app');
+        message.info('正在关闭系统...');
+        setTimeout(() => {
+          window.close();
+        }, 2000);
+      }
+    });
+  }, [sendCommand]);
+
+  return (
+    <ConfigProvider
+      theme={{
+        algorithm: theme.darkAlgorithm,
+        token: {
+          colorPrimary: '#FF6900',
+          colorBgContainer: '#1A1A1A',
+          colorBgElevated: '#2A2A2A',
+          borderRadius: 12,
+          colorText: '#FFFFFF',
+          colorTextSecondary: '#B3B3B3',
+        },
+      }}
+    >
+      <Layout className="app-layout">
+        <Header className="app-header">
+          <div className="header-left">
+            <div className="logo">
+              <div className="logo-icon">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <rect width="32" height="32" rx="8" fill="url(#gradient)" />
+                  <path d="M16 8L22 12V20L16 24L10 20V12L16 8Z" fill="white" fillOpacity="0.9" />
+                  <defs>
+                    <linearGradient id="gradient" x1="0" y1="0" x2="32" y2="32">
+                      <stop stopColor="#FF6900" />
+                      <stop offset="1" stopColor="#FF8533" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+              </div>
+              <Title level={4} className="logo-text">体态数据采集系统</Title>
+            </div>
+          </div>
+          <div className="header-right">
+            <Space>
+              <Button type="text" icon={<SettingOutlined />} className="header-btn" />
+              <Button type="text" icon={<QuestionCircleOutlined />} className="header-btn" />
+              <Button
+                type="text"
+                icon={<PoweroffOutlined />}
+                className="header-btn exit-btn"
+                onClick={handleExit}
+                danger
+              />
+            </Space>
+          </div>
+        </Header>
+
+        <Content className="app-content">
+          <div className="main-container">
+            <div className="panel-left">
+              <PreviewPanel
+                previewData={previewData}
+                distanceInfo={distanceInfo}
+                isCapturing={isCapturing}
+              />
+            </div>
+            
+            <div className="panel-right">
+              <ControlPanel
+                connected={connected}
+                distanceInfo={distanceInfo}
+                isCapturing={isCapturing}
+                captureCount={captureCount}
+                sessionId={sessionId}
+                sessions={sessions}
+                voiceActive={voiceActive}
+                onCapture={handleCapture}
+                onCreateSession={handleCreateSession}
+                onSelectSession={handleSelectSession}
+                onFinishSession={handleFinishSession}
+                onRefreshSessions={handleRefreshSessions}
+              />
+            </div>
+          </div>
+        </Content>
+
+        <Footer className="app-footer">
+          <StatusBar
+            connected={connected}
+            captureCount={captureCount}
+            sessionId={sessionId}
+            voiceActive={voiceActive}
+          />
+        </Footer>
+      </Layout>
+    </ConfigProvider>
+  );
+}
+
+export default App;

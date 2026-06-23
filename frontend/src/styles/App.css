@@ -1,0 +1,217 @@
+.app-layout {
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  display: flex;
+  align-items: center;
+}
+
+.logo-text {
+  margin: 0 !important;
+  color: var(--text-primary) !important;
+  font-weight: 500;
+  font-size: 18px !important;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+}
+
+.header-btn {
+  color: var(--text-secondary) !important;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  transition: all 0.3s ease;
+}
+
+.header-btn:hover {
+  color: var(--text-primary) !important;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.exit-btn {
+  color: #ff4d4f !important;
+}
+
+.exit-btn:hover {
+  background: rgba(255, 77, 79, 0.15) !important;
+  color: #ff7875 !important;
+}
+
+.app-content {
+  padding: 16px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.main-container {
+  display: flex;
+  height: calc(100vh - 56px - 48px - 32px);
+  min-height: 400px;
+  gap: 16px;
+}
+
+.panel-left {
+  flex: 7;
+  height: 100%;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.panel-right {
+  flex: 3;
+  height: 100%;
+  overflow: hidden;
+  min-width: 280px;
+  max-width: 400px;
+}
+
+.app-footer {
+  padding: 0;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+/* Ant Design Overrides */
+.ant-card {
+  background: var(--bg-card) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: var(--radius-lg) !important;
+}
+
+.ant-card-head {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  color: var(--text-primary) !important;
+  min-height: 40px !important;
+  padding: 0 16px !important;
+}
+
+.ant-card-head-title {
+  font-size: 14px !important;
+  padding: 8px 0 !important;
+}
+
+.ant-card-body {
+  color: var(--text-primary);
+  padding: 12px !important;
+}
+
+.ant-btn-primary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  border: none;
+  box-shadow: 0 2px 8px rgba(255, 105, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.ant-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 105, 0, 0.4);
+}
+
+.ant-input {
+  background: var(--bg-secondary) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--text-primary) !important;
+}
+
+.ant-input:focus,
+.ant-input-focused {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px rgba(255, 105, 0, 0.2) !important;
+}
+
+.ant-checkbox-wrapper {
+  color: var(--text-secondary) !important;
+}
+
+.ant-checkbox-checked .ant-checkbox-inner {
+  background-color: var(--primary) !important;
+  border-color: var(--primary) !important;
+}
+
+.ant-tag {
+  border-radius: var(--radius-sm);
+}
+
+.ant-list {
+  color: var(--text-primary);
+}
+
+.ant-list-item {
+  color: var(--text-primary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.ant-message-notice-content {
+  background: var(--bg-card) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+}
+
+.ant-select-selector {
+  background: var(--bg-secondary) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--text-primary) !important;
+}
+
+.ant-select-dropdown {
+  background: var(--bg-card) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.ant-select-item {
+  color: var(--text-primary) !important;
+}
+
+.ant-select-item-option-active {
+  background: rgba(255, 105, 0, 0.2) !important;
+}
+
+.ant-select-item-option-selected {
+  background: rgba(255, 105, 0, 0.3) !important;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
