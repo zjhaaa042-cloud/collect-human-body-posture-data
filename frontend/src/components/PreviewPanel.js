@@ -12,14 +12,16 @@ const DistanceIndicator = ({ distanceInfo }) => {
     optimal: '#00C853',
     too_close: '#FF1744',
     too_far: '#FFD600',
-    no_data: '#808080'
+    no_data: '#808080',
+    no_human: '#808080'
   };
 
   const statusLabels = {
     optimal: '距离合适',
     too_close: '太近',
     too_far: '太远',
-    no_data: '无数据'
+    no_data: '无数据',
+    no_human: '未识别到人体'
   };
 
   const color = statusColors[distanceInfo.status] || '#808080';

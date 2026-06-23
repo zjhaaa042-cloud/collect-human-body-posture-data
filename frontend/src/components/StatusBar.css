@@ -33,11 +33,11 @@
   font-size: 12px;
 }
 
-.voice-section {
+.status-voice-section {
   gap: 8px;
 }
 
-.voice-indicator {
+.status-voice-indicator {
   display: flex;
   align-items: flex-end;
   gap: 2px;
@@ -45,14 +45,14 @@
   padding: 0 2px;
 }
 
-.voice-bar {
+.status-voice-bar {
   width: 3px;
   background: var(--text-tertiary);
   border-radius: 1.5px;
   transition: height 0.05s ease;
 }
 
-.voice-indicator.active .voice-bar {
+.status-voice-indicator.active .status-voice-bar {
   background: var(--primary);
   box-shadow: 0 0 4px rgba(255, 105, 0, 0.5);
 }

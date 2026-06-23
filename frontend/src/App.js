@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ConfigProvider, theme, Layout, Typography, Space, Button, message, Modal } from 'antd';
+import { ConfigProvider, theme, Layout, Typography, Space, Button, message, Modal, Image } from 'antd';
 import { SettingOutlined, QuestionCircleOutlined, PoweroffOutlined } from '@ant-design/icons';
 import PreviewPanel from './components/PreviewPanel';
 import ControlPanel from './components/ControlPanel';
@@ -18,9 +18,11 @@ function App() {
   const [captureResult, setCaptureResult] = useState(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [captureCount, setCaptureCount] = useState(0);
+  const [captureHistory, setCaptureHistory] = useState([]);
   const [sessionId, setSessionId] = useState(null);
   const [voiceActive, setVoiceActive] = useState(false);
   const [sessions, setSessions] = useState([]);
+  const [selectedImage, setSelectedImage] = useState(null);
   const wsRef = useRef(null);
 
   const connectWebSocket = useCallback(() => {
@@ -50,20 +52,32 @@ function App() {
             case 'capture_result':
               setCaptureResult(data.data);
               if (data.data.success) {
-                setCaptureCount(prev => prev + 1);
                 message.success('采集成功');
+                wsRef.current?.send(JSON.stringify({ type: 'get_captures' }));
               } else {
                 message.error('采集失败: ' + data.data.error);
               }
               setIsCapturing(false);
               break;
+            case 'capture_list':
+              setCaptureCount(data.data.count);
+              setCaptureHistory(
+                (data.data.captures || []).map(c => ({
+                  id: `cap_${String(c.index).padStart(3, '0')}`,
+                  filename: c.filename,
+                  time: new Date(c.time * 1000).toLocaleTimeString()
+                })).reverse().slice(0, 10)
+              );
+              break;
             case 'session_created':
               setSessionId(data.data.session_id);
               message.success('会话已创建');
               ws.send(JSON.stringify({ type: 'get_sessions' }));
+              ws.send(JSON.stringify({ type: 'get_captures' }));
               break;
             case 'session_finished':
               message.info(`采集完成，共采集 ${data.data.capture_count} 组数据`);
+              wsRef.current?.send(JSON.stringify({ type: 'get_captures' }));
               break;
             case 'voice_activity':
               setVoiceActive(data.data.active);
@@ -73,6 +87,11 @@ function App() {
               break;
             case 'exit_confirm':
               message.info(data.data.message);
+              break;
+            case 'capture_image':
+              if (data.data.image) {
+                setSelectedImage(`data:image/jpeg;base64,${data.data.image}`);
+              }
               break;
             default:
               break;
@@ -135,6 +154,10 @@ function App() {
 
   const handleRefreshSessions = useCallback(() => {
     sendCommand('get_sessions');
+  }, [sendCommand]);
+
+  const handleViewImage = useCallback((filename) => {
+    sendCommand('get_capture_image', { filename });
   }, [sendCommand]);
 
   const handleExit = useCallback(() => {
@@ -218,6 +241,7 @@ function App() {
                 distanceInfo={distanceInfo}
                 isCapturing={isCapturing}
                 captureCount={captureCount}
+                captureHistory={captureHistory}
                 sessionId={sessionId}
                 sessions={sessions}
                 voiceActive={voiceActive}
@@ -226,6 +250,7 @@ function App() {
                 onSelectSession={handleSelectSession}
                 onFinishSession={handleFinishSession}
                 onRefreshSessions={handleRefreshSessions}
+                onViewImage={handleViewImage}
               />
             </div>
           </div>
@@ -240,6 +265,19 @@ function App() {
           />
         </Footer>
       </Layout>
+
+      <Modal
+        open={!!selectedImage}
+        title="采集图像"
+        footer={null}
+        onCancel={() => setSelectedImage(null)}
+        width={700}
+        centered
+      >
+        {selectedImage && (
+          <img src={selectedImage} alt="capture" style={{ width: '100%' }} />
+        )}
+      </Modal>
     </ConfigProvider>
   );
 }

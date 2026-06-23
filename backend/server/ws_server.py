@@ -89,6 +89,21 @@ class WebSocketServer:
 
         frames = self.camera.get_frames()
         if frames:
+            if frames.depth is not None:
+                human_detected, _ = self.depth_analyzer.detect_human(frames.depth, frames.depth_scale)
+                if not human_detected:
+                    if self.voice_synthesizer:
+                        self.voice_synthesizer.speak("未识别到人体，请站在相机前方。", blocking=False)
+                    await self._broadcast({
+                        "type": "capture_result",
+                        "data": {
+                            "success": False,
+                            "error": "未识别到人体，请站在相机前方"
+                        }
+                    })
+                    self.is_capturing = False
+                    return
+
             point_cloud = self.camera.generate_point_cloud(frames)
             config = CaptureConfig(
                 save_rgb=self.settings.storage.save_rgb,
@@ -196,6 +211,19 @@ class WebSocketServer:
                 "type": "session_list",
                 "data": {"sessions": sessions}
             }))
+        elif msg_type == "get_captures":
+            captures = self.data_collector.get_captures()
+            await websocket.send(json.dumps({
+                "type": "capture_list",
+                "data": {"captures": captures, "count": len(captures)}
+            }))
+        elif msg_type == "get_capture_image":
+            filename = data.get("filename")
+            image_b64 = self.data_collector.get_capture_image(filename)
+            await websocket.send(json.dumps({
+                "type": "capture_image",
+                "data": {"filename": filename, "image": image_b64}
+            }))
         elif msg_type == "select_session":
             session_name = data.get("session_name")
             if session_name and self.data_collector.select_session(session_name):
@@ -238,18 +266,27 @@ class WebSocketServer:
                 if frames:
                     color_preview = ""
                     depth_preview = ""
+                    distance_data = None
 
                     if frames.color is not None:
                         color_preview = self.frame_processor.encode_preview_fast(frames.color, is_rgb=True)
 
                     if frames.depth is not None:
-                        depth_preview = self.frame_processor.encode_depth_preview_fast(frames.depth)
+                        depth_preview = self.frame_processor.encode_depth_preview_fast(frames.depth, frames.depth_scale)
+                        distance_info = self.depth_analyzer.analyze_distance(frames.depth, depth_scale=frames.depth_scale)
+                        distance_data = {
+                            "distance_mm": distance_info.distance_mm,
+                            "status": distance_info.status.value,
+                            "message": distance_info.message,
+                            "confidence": distance_info.confidence
+                        }
 
                     await self._broadcast({
                         "type": "preview_frame",
                         "data": {
                             "color": color_preview,
-                            "depth": depth_preview
+                            "depth": depth_preview,
+                            "distance": distance_data
                         }
                     })
 

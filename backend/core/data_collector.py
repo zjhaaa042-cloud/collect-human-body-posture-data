@@ -1,4 +1,5 @@
 import json
+import base64
 import cv2
 import numpy as np
 from pathlib import Path
@@ -270,3 +271,45 @@ class DataCollector:
 
     def get_capture_count(self) -> int:
         return self.capture_count
+
+    def get_captures(self) -> list:
+        try:
+            if not self.current_session or not self.current_session.exists():
+                return []
+            rgb_dir = self.current_session / "rgb"
+            if not rgb_dir.exists():
+                return []
+            files = sorted(rgb_dir.glob("*.png"), key=lambda f: f.stat().st_mtime)
+            captures = []
+            for i, f in enumerate(files, 1):
+                name = f.stem
+                captures.append({
+                    "index": i,
+                    "filename": name,
+                    "time": f.stat().st_mtime
+                })
+            return captures
+        except Exception as e:
+            logger.error(f"Failed to get captures: {e}")
+            return []
+
+    def get_capture_image(self, filename: str) -> str:
+        try:
+            if not self.current_session or not self.current_session.exists():
+                return ""
+            rgb_path = self.current_session / "rgb" / f"{filename}.png"
+            if not rgb_path.exists():
+                return ""
+            img = cv2.imread(str(rgb_path))
+            if img is None:
+                return ""
+            h, w = img.shape[:2]
+            max_size = 640
+            if max(h, w) > max_size:
+                scale = max_size / max(h, w)
+                img = cv2.resize(img, (int(w * scale), int(h * scale)))
+            _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            return base64.b64encode(buffer).decode('utf-8')
+        except Exception as e:
+            logger.error(f"Failed to get capture image: {e}")
+            return ""

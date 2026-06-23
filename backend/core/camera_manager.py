@@ -202,8 +202,15 @@ class CameraManager:
                 if depth_frame:
                     w = depth_frame.get_width()
                     h = depth_frame.get_height()
-                    depth_scale = depth_frame.get_depth_scale()
+                    raw_scale = depth_frame.get_depth_scale()
+                    if raw_scale > 0.001:
+                        depth_scale = raw_scale
                     depth_data = np.frombuffer(depth_frame.get_data(), dtype=np.uint16).reshape((h, w))
+                    if self.frame_count == 0:
+                        valid = depth_data[depth_data > 0]
+                        logger.info(f"Depth scale: raw={raw_scale}, used={depth_scale}, raw_range={depth_data.min()}-{depth_data.max()}, valid_count={len(valid)}")
+                        if len(valid) > 0:
+                            logger.info(f"  mm_range: {valid.min() * depth_scale:.0f}-{valid.max() * depth_scale:.0f}mm")
 
                 self.frame_count += 1
                 return FrameData(

@@ -19,6 +19,7 @@ const ControlPanel = ({
   distanceInfo,
   isCapturing,
   captureCount,
+  captureHistory = [],
   sessionId,
   sessions = [],
   voiceActive,
@@ -26,13 +27,13 @@ const ControlPanel = ({
   onCreateSession,
   onSelectSession,
   onFinishSession,
-  onRefreshSessions
+  onRefreshSessions,
+  onViewImage
 }) => {
   const [saveRgb, setSaveRgb] = useState(true);
   const [saveDepth, setSaveDepth] = useState(true);
   const [savePointcloud, setSavePointcloud] = useState(true);
   const [sessionName, setSessionName] = useState('');
-  const [captureHistory, setCaptureHistory] = useState([]);
 
   const handleCreateSession = () => {
     const name = sessionName.trim() || undefined;
@@ -46,10 +47,6 @@ const ControlPanel = ({
       return;
     }
     onCapture();
-    setCaptureHistory(prev => [
-      { id: captureCount + 1, time: new Date().toLocaleTimeString() },
-      ...prev.slice(0, 9)
-    ]);
   };
 
   const distanceStatus = distanceInfo?.status || 'no_data';
@@ -61,7 +58,8 @@ const ControlPanel = ({
     optimal: '#00C853',
     too_close: '#FF1744',
     too_far: '#FFD600',
-    no_data: '#808080'
+    no_data: '#808080',
+    no_human: '#808080'
   };
 
   return (
@@ -171,15 +169,15 @@ const ControlPanel = ({
               语音控制
             </Space>
           </Title>
-          <div className="voice-section">
-            <div className={`voice-indicator ${voiceActive ? 'active' : ''}`}>
+          <div className="control-voice-section">
+            <div className={`control-voice-indicator ${voiceActive ? 'active' : ''}`}>
               {voiceActive ? (
-                <AudioOutlined className="voice-mic-icon active" />
+                <AudioOutlined className="control-voice-mic-icon active" />
               ) : (
-                <AudioMutedOutlined className="voice-mic-icon" />
+                <AudioMutedOutlined className="control-voice-mic-icon" />
               )}
               <div>
-                <div className={`voice-status-text ${voiceActive ? 'active' : ''}`}>
+                <div className={`control-voice-status-text ${voiceActive ? 'active' : ''}`}>
                   {voiceActive ? '正在接收语音...' : '等待语音输入'}
                 </div>
                 <Text type="secondary" style={{ fontSize: 11 }}>
@@ -187,7 +185,7 @@ const ControlPanel = ({
                 </Text>
               </div>
             </div>
-            <div className="voice-commands">
+            <div className="control-voice-commands">
               <Text type="secondary" style={{ fontSize: 11 }}>支持指令：</Text>
               <div className="command-tags">
                 <Tag>开始采集</Tag>
@@ -214,8 +212,11 @@ const ControlPanel = ({
             className="history-list"
             dataSource={captureHistory}
             renderItem={item => (
-              <List.Item>
-                <Text type="secondary">#{item.id}</Text>
+              <List.Item
+                onClick={() => onViewImage?.(item.filename)}
+                style={{ cursor: 'pointer' }}
+              >
+                <Text type="secondary">{item.id}</Text>
                 <Text>{item.time}</Text>
               </List.Item>
             )}

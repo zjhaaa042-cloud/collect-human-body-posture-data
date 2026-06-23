@@ -44,11 +44,11 @@ const VoiceIndicator = ({ active }) => {
   }, [active]);
 
   return (
-    <div className={`voice-indicator ${active ? 'active' : ''}`}>
+    <div className={`status-voice-indicator ${active ? 'active' : ''}`}>
       {bars.map((height, index) => (
         <div
           key={index}
-          className="voice-bar"
+          className="status-voice-bar"
           style={{
             height: `${height * 3}px`,
             transition: 'height 0.05s ease'
@@ -77,7 +77,7 @@ const StatusBar = ({ connected, captureCount, sessionId, voiceActive }) => {
             )}
           </div>
 
-          <div className="status-item voice-section">
+          <div className="status-item status-voice-section">
             <VoiceIndicator active={voiceActive} />
             <Tag 
               icon={voiceActive ? <AudioOutlined /> : <CheckCircleOutlined />} 

@@ -100,13 +100,13 @@
   transform: translateY(0);
 }
 
-.voice-section {
+.control-voice-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.voice-indicator {
+.control-voice-indicator {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -116,38 +116,38 @@
   transition: all 0.3s ease;
 }
 
-.voice-indicator.active {
+.control-voice-indicator.active {
   background: rgba(255, 105, 0, 0.15);
   border: 1px solid rgba(255, 105, 0, 0.3);
 }
 
-.voice-mic-icon {
+.control-voice-mic-icon {
   font-size: 24px;
   color: var(--text-tertiary);
   transition: all 0.3s ease;
 }
 
-.voice-mic-icon.active {
+.control-voice-mic-icon.active {
   color: var(--primary);
-  animation: pulse 1s infinite;
+  animation: pulse-scale 1s infinite;
 }
 
-@keyframes pulse {
+@keyframes pulse-scale {
   0% { transform: scale(1); }
   50% { transform: scale(1.1); }
   100% { transform: scale(1); }
 }
 
-.voice-status-text {
+.control-voice-status-text {
   font-size: 13px;
   color: var(--text-secondary);
 }
 
-.voice-status-text.active {
+.control-voice-status-text.active {
   color: var(--primary);
 }
 
-.voice-commands {
+.control-voice-commands {
   background: var(--bg-secondary);
   padding: 8px 10px;
   border-radius: var(--radius-sm);

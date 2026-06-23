@@ -4,15 +4,15 @@ import base64
 from typing import Tuple, Optional
 from loguru import logger
 
+MIN_DEPTH_MM = 20
+MAX_DEPTH_MM = 5000
+
 
 class FrameProcessor:
     def __init__(self, preview_size: Tuple[int, int] = (320, 240), jpeg_quality: int = 50):
         self.preview_size = preview_size
         self.jpeg_quality = jpeg_quality
         self._encode_params = [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality]
-        self._color_cache = None
-        self._depth_cache = None
-        self._lut_cache = None
 
     def encode_preview(self, frame: np.ndarray, is_rgb: bool = True) -> str:
         try:
@@ -24,7 +24,7 @@ class FrameProcessor:
                 resized = cv2.resize(frame, self.preview_size, interpolation=cv2.INTER_LINEAR)
             else:
                 resized = frame
-            if is_rgb and len(resized.shape) == 3 and resized.shape[2] == 3:
+            if is_rgb:
                 resized = cv2.cvtColor(resized, cv2.COLOR_RGB2BGR)
             _, buffer = cv2.imencode('.jpg', resized, self._encode_params)
             return base64.b64encode(buffer).decode('utf-8')
@@ -42,18 +42,15 @@ class FrameProcessor:
                 resized = cv2.resize(frame, self.preview_size, interpolation=cv2.INTER_NEAREST)
             else:
                 resized = frame
-            if is_rgb and len(resized.shape) == 3 and resized.shape[2] == 3:
-                if self._color_cache is None or self._color_cache.shape != resized.shape:
-                    self._color_cache = np.empty_like(resized)
-                cv2.cvtColor(resized, cv2.COLOR_RGB2BGR, dst=self._color_cache)
-                resized = self._color_cache
+            if is_rgb:
+                resized = cv2.cvtColor(resized, cv2.COLOR_RGB2BGR)
             _, buffer = cv2.imencode('.jpg', resized, self._encode_params)
             return base64.b64encode(buffer).decode('utf-8')
         except Exception as e:
             logger.error(f"Failed to encode preview fast: {e}")
             return ""
 
-    def encode_depth_preview_fast(self, depth: np.ndarray) -> str:
+    def encode_depth_preview_fast(self, depth: np.ndarray, depth_scale: float = 1.0) -> str:
         try:
             if depth is None or depth.size == 0:
                 return ""
@@ -66,18 +63,12 @@ class FrameProcessor:
             valid_mask = small_depth > 0
             if not np.any(valid_mask):
                 return ""
-            d_min = np.percentile(small_depth[valid_mask], 5)
-            d_max = np.percentile(small_depth[valid_mask], 95)
-            if d_max - d_min < 1:
-                d_max = d_min + 1
-            if self._lut_cache is None:
-                self._lut_cache = np.zeros(65536, dtype=np.uint8)
-                indices = np.arange(65536)
-                normalized = np.clip((indices - d_min) / (d_max - d_min) * 255, 0, 255)
-                self._lut_cache = normalized.astype(np.uint8)
-            depth_norm = self._lut_cache[small_depth]
+            depth_mm = small_depth.astype(np.float32) * depth_scale
+            depth_clipped = np.clip(depth_mm, MIN_DEPTH_MM, MAX_DEPTH_MM)
+            depth_clipped = np.where(depth_mm > MIN_DEPTH_MM, depth_clipped, 0)
+            depth_norm = cv2.normalize(depth_clipped, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
             depth_norm[~valid_mask] = 0
-            colored = cv2.applyColorMap(depth_norm, cv2.COLORMAP_TURBO)
+            colored = cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
             _, buffer = cv2.imencode('.jpg', colored, self._encode_params)
             return base64.b64encode(buffer).decode('utf-8')
         except Exception as e:
@@ -91,14 +82,9 @@ class FrameProcessor:
             valid_mask = depth > 0
             if not np.any(valid_mask):
                 return np.zeros((depth.shape[0], depth.shape[1], 3), dtype=np.uint8)
-            d_min = np.percentile(depth[valid_mask], 2)
-            d_max = np.percentile(depth[valid_mask], 98)
-            if d_max - d_min < 1:
-                d_max = d_min + 1
-            depth_clipped = np.clip(depth, d_min, d_max)
-            depth_norm = ((depth_clipped - d_min) / (d_max - d_min) * 255).astype(np.uint8)
+            depth_norm = cv2.normalize(depth.astype(np.float32), None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
             depth_norm[~valid_mask] = 0
-            return cv2.applyColorMap(depth_norm, cv2.COLORMAP_TURBO)
+            return cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
         except Exception as e:
             logger.error(f"Failed to colorize depth: {e}")
             return np.zeros((self.preview_size[1], self.preview_size[0], 3), dtype=np.uint8)
