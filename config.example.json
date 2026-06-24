@@ -20,6 +20,8 @@
     "save_depth": true,
     "save_pointcloud": true,
     "colored_pointcloud": true,
+    "pointcloud_binary": true,
+    "pointcloud_stride": 1,
     "quality_check": true,
     "min_depth_coverage": 0.3,
     "min_color_brightness": 30,

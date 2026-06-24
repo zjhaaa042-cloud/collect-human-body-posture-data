@@ -58,10 +58,28 @@ class PLYWriter:
             header += "end_header\n"
             f.write(header.encode('utf-8'))
 
-            for i in range(len(points)):
-                f.write(points[i].tobytes())
-                if colors is not None:
-                    f.write(colors[i].tobytes())
+            points = np.asarray(points, dtype='<f4')
+            if colors is None:
+                f.write(points.tobytes())
+                return
+
+            colors = np.asarray(colors, dtype=np.uint8)
+            vertex_dtype = np.dtype([
+                ('x', '<f4'),
+                ('y', '<f4'),
+                ('z', '<f4'),
+                ('red', 'u1'),
+                ('green', 'u1'),
+                ('blue', 'u1'),
+            ])
+            vertices = np.empty(len(points), dtype=vertex_dtype)
+            vertices['x'] = points[:, 0]
+            vertices['y'] = points[:, 1]
+            vertices['z'] = points[:, 2]
+            vertices['red'] = colors[:, 0]
+            vertices['green'] = colors[:, 1]
+            vertices['blue'] = colors[:, 2]
+            f.write(vertices.tobytes())
 
     @staticmethod
     def load(filepath: str):

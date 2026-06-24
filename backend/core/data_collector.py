@@ -1,5 +1,6 @@
 import json
 import base64
+import re
 import cv2
 import numpy as np
 from pathlib import Path
@@ -8,6 +9,10 @@ from dataclasses import dataclass, asdict
 from typing import Optional, List
 from loguru import logger
 
+from ..storage.ply_writer import PLYWriter
+
+SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9_\-\u4e00-\u9fff]+$")
+
 
 @dataclass
 class CaptureConfig:
@@ -15,6 +20,7 @@ class CaptureConfig:
     save_depth: bool = True
     save_pointcloud: bool = True
     colored_pointcloud: bool = True
+    pointcloud_binary: bool = True
     quality_check: bool = True
     min_depth_coverage: float = 0.3
     min_color_brightness: int = 30
@@ -38,10 +44,19 @@ class DataCollector:
     def __init__(self, output_dir: str):
         self.output_dir = Path(output_dir)
         self.sessions_dir = self.output_dir / "sessions"
+        self.sessions_dir.mkdir(parents=True, exist_ok=True)
         self.current_session = None
         self.session_id = None
         self.capture_count = 0
         self.session_metadata = None
+
+    def _validate_session_name(self, session_name: str) -> str:
+        session_name = (session_name or "").strip()
+        if not session_name:
+            raise ValueError("会话名称不能为空")
+        if session_name in {".", ".."} or not SESSION_NAME_RE.fullmatch(session_name):
+            raise ValueError("会话名称只能包含中文、英文、数字、下划线和短横线")
+        return session_name
 
     def _check_image_quality(self, color_data: np.ndarray, depth_data: np.ndarray, config: CaptureConfig) -> tuple:
         issues = []
@@ -68,9 +83,13 @@ class DataCollector:
         try:
             if session_name is None:
                 session_name = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            else:
+                session_name = self._validate_session_name(session_name)
 
             self.session_id = session_name
             self.current_session = self.sessions_dir / session_name
+            if self.current_session.resolve().parent != self.sessions_dir.resolve():
+                raise ValueError("会话路径无效")
             self.current_session.mkdir(parents=True, exist_ok=True)
 
             (self.current_session / "rgb").mkdir(exist_ok=True)
@@ -101,7 +120,7 @@ class DataCollector:
     def capture(self, frame_data, point_cloud=None, config: Optional[CaptureConfig] = None, camera_intrinsics=None) -> CaptureResult:
         try:
             if self.current_session is None or not self.current_session.exists():
-                raise ValueError("No active session. Call create_session first.")
+                self.create_session()
 
             if config is None:
                 config = CaptureConfig()
@@ -171,7 +190,7 @@ class DataCollector:
             if config.save_pointcloud and point_cloud is not None:
                 pc_filename = f"pc_{capture_id}_{timestamp_str}.ply"
                 pc_path = self.current_session / "pointcloud" / pc_filename
-                self._save_ply(point_cloud.points, point_cloud.colors, str(pc_path))
+                self._save_ply(point_cloud.points, point_cloud.colors, str(pc_path), binary=config.pointcloud_binary)
                 result.pointcloud_path = f"pointcloud/{pc_filename}"
 
             if camera_intrinsics is not None:
@@ -206,30 +225,9 @@ class DataCollector:
                 error=str(e)
             )
 
-    def _save_ply(self, points: np.ndarray, colors: Optional[np.ndarray], filepath: str):
+    def _save_ply(self, points: np.ndarray, colors: Optional[np.ndarray], filepath: str, binary: bool = True):
         try:
-            valid_mask = np.any(np.abs(points) > 1e-6, axis=1)
-            valid_points = points[valid_mask]
-            valid_colors = colors[valid_mask] if colors is not None else None
-
-            with open(filepath, 'w') as f:
-                f.write("ply\n")
-                f.write("format ascii 1.0\n")
-                f.write(f"element vertex {len(valid_points)}\n")
-                f.write("property float x\n")
-                f.write("property float y\n")
-                f.write("property float z\n")
-                if valid_colors is not None:
-                    f.write("property uchar red\n")
-                    f.write("property uchar green\n")
-                    f.write("property uchar blue\n")
-                f.write("end_header\n")
-
-                for i in range(len(valid_points)):
-                    line = f"{valid_points[i, 0]:.3f} {valid_points[i, 1]:.3f} {valid_points[i, 2]:.3f}"
-                    if valid_colors is not None:
-                        line += f" {valid_colors[i, 0]} {valid_colors[i, 1]} {valid_colors[i, 2]}"
-                    f.write(line + "\n")
+            PLYWriter.save(filepath, points, colors, binary=binary)
         except Exception as e:
             logger.error(f"Failed to save PLY: {e}")
             raise
@@ -257,7 +255,7 @@ class DataCollector:
         try:
             if not self.sessions_dir.exists():
                 return []
-            return [d.name for d in self.sessions_dir.iterdir() if d.is_dir()]
+            return sorted(d.name for d in self.sessions_dir.iterdir() if d.is_dir())
         except Exception as e:
             logger.error(f"Failed to get session list: {e}")
             return []
@@ -265,6 +263,7 @@ class DataCollector:
     def select_session(self, session_name: str) -> bool:
         """Select an existing session to continue capturing"""
         try:
+            session_name = self._validate_session_name(session_name)
             session_path = self.sessions_dir / session_name
             if not session_path.exists():
                 logger.error(f"Session not found: {session_name}")
@@ -310,6 +309,24 @@ class DataCollector:
         try:
             if not self.current_session or not self.current_session.exists():
                 return []
+            if self.session_metadata and self.session_metadata.get("captures"):
+                captures = []
+                for i, item in enumerate(self.session_metadata.get("captures", []), 1):
+                    rgb_path = item.get("rgb_path")
+                    filename = Path(rgb_path).stem if rgb_path else item.get("capture_id", f"cap_{i:03d}")
+                    timestamp = 0
+                    if item.get("timestamp"):
+                        try:
+                            timestamp = datetime.fromisoformat(item["timestamp"]).timestamp()
+                        except ValueError:
+                            timestamp = 0
+                    captures.append({
+                        "index": i,
+                        "filename": filename,
+                        "time": timestamp,
+                        "has_image": bool(rgb_path)
+                    })
+                return captures
             rgb_dir = self.current_session / "rgb"
             if not rgb_dir.exists():
                 return []

@@ -27,6 +27,8 @@ function App() {
   const isResizing = useRef(false);
   const containerRef = useRef(null);
   const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const shouldReconnectRef = useRef(true);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
@@ -57,6 +59,8 @@ function App() {
   }, []);
 
   const connectWebSocket = useCallback(() => {
+    if (!shouldReconnectRef.current) return;
+
     try {
       const ws = new WebSocket(WS_URL);
 
@@ -85,7 +89,11 @@ function App() {
             case 'capture_result':
               setCaptureResult(data.data);
               if (data.data.success) {
+                if (data.data.session_id) {
+                  setSessionId(data.data.session_id);
+                }
                 message.success('采集成功');
+                wsRef.current?.send(JSON.stringify({ type: 'get_sessions' }));
                 wsRef.current?.send(JSON.stringify({ type: 'get_captures' }));
               } else {
                 message.error('采集失败: ' + data.data.error);
@@ -98,7 +106,8 @@ function App() {
                 (data.data.captures || []).map(c => ({
                   id: `cap_${String(c.index).padStart(3, '0')}`,
                   filename: c.filename,
-                  time: new Date(c.time * 1000).toLocaleTimeString()
+                  time: c.time ? new Date(c.time * 1000).toLocaleTimeString() : '--',
+                  hasImage: c.has_image !== false
                 })).reverse().slice(0, 10)
               );
               break;
@@ -123,7 +132,13 @@ function App() {
             case 'capture_image':
               if (data.data.image) {
                 setSelectedImage(`data:image/jpeg;base64,${data.data.image}`);
+              } else {
+                message.warning('当前记录没有可预览的 RGB 图像');
               }
+              break;
+            case 'error':
+              message.error(data.message || '服务端处理失败');
+              setIsCapturing(false);
               break;
             default:
               break;
@@ -136,8 +151,14 @@ function App() {
       ws.onclose = () => {
         setConnected(false);
         setIsCapturing(false);
+        if (!shouldReconnectRef.current) {
+          return;
+        }
         message.warning('连接已断开，正在重连...');
-        setTimeout(connectWebSocket, 3000);
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+        }
+        reconnectTimerRef.current = setTimeout(connectWebSocket, 3000);
       };
 
       ws.onerror = (error) => {
@@ -152,8 +173,13 @@ function App() {
   }, []);
 
   useEffect(() => {
+    shouldReconnectRef.current = true;
     connectWebSocket();
     return () => {
+      shouldReconnectRef.current = false;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
       if (wsRef.current) {
         wsRef.current.close();
       }
@@ -172,18 +198,14 @@ function App() {
     }
   }, []);
 
-  const handleCapture = useCallback(() => {
+  const handleCapture = useCallback((options) => {
     if (!connected) {
       message.warning('未连接到服务器');
       return;
     }
-    if (!sessionId) {
-      message.warning('请先创建或选择采集会话');
-      return;
-    }
     setIsCapturing(true);
-    sendCommand('capture_single');
-  }, [sendCommand, connected, sessionId]);
+    sendCommand('capture_single', { options });
+  }, [sendCommand, connected]);
 
   const handleCreateSession = useCallback((sessionName) => {
     sendCommand('create_session', { session_name: sessionName });
@@ -194,7 +216,6 @@ function App() {
   }, [sendCommand]);
 
   const handleFinishSession = useCallback(() => {
-    sendCommand('speak', { text: '采集完成' });
     sendCommand('finish_session');
   }, [sendCommand]);
 
@@ -214,8 +235,12 @@ function App() {
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: () => {
+        shouldReconnectRef.current = false;
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+        }
         sendCommand('exit_app');
-        message.info('正在关闭系统...');
+        message.info('正在关闭当前采集服务...');
         setTimeout(() => {
           window.close();
         }, 2000);

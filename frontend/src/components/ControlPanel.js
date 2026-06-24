@@ -39,7 +39,13 @@ const ControlPanel = ({
   };
 
   const handleCapture = () => {
-    onCapture();
+    onCapture({
+      save_rgb: saveRgb,
+      save_depth: saveDepth,
+      save_pointcloud: savePointcloud,
+      colored_pointcloud: true,
+      quality_check: true
+    });
   };
 
   const distanceStatus = distanceInfo?.status || 'no_data';
@@ -206,8 +212,8 @@ const ControlPanel = ({
             dataSource={captureHistory}
             renderItem={item => (
               <List.Item
-                onClick={() => onViewImage?.(item.filename)}
-                style={{ cursor: 'pointer' }}
+                onClick={() => item.hasImage && onViewImage?.(item.filename)}
+                style={{ cursor: item.hasImage ? 'pointer' : 'default', opacity: item.hasImage ? 1 : 0.65 }}
               >
                 <Text type="secondary">{item.id}</Text>
                 <Text>{item.time}</Text>

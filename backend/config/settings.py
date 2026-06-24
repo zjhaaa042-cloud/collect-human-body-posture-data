@@ -28,6 +28,8 @@ class StorageSettings(BaseModel):
     save_depth: bool = True
     save_pointcloud: bool = True
     colored_pointcloud: bool = True
+    pointcloud_binary: bool = True
+    pointcloud_stride: int = 1
     quality_check: bool = True
     min_depth_coverage: float = 0.3
     min_color_brightness: int = 30

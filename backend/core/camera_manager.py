@@ -10,31 +10,34 @@ try:
         Pipeline, Config, Context, AlignFilter, PointCloudFilter,
         OBSensorType, OBFormat, OBStreamType, OBError,
         OBFrameAggregateOutputMode, OBPropertyID,
-        save_point_cloud_to_ply
     )
     HAS_ORBBEC = True
 except ImportError:
+    OBError = Exception
     HAS_ORBBEC = False
     logger.warning("pyorbbecsdk not found, using mock mode. Install with: pip install pyorbbecsdk2")
 
-CAMERA_PARAMS_MAP = {
-    "color_auto_exposure": (OBPropertyID.OB_PROP_COLOR_AUTO_EXPOSURE_BOOL, bool),
-    "color_auto_white_balance": (OBPropertyID.OB_PROP_COLOR_AUTO_WHITE_BALANCE_BOOL, bool),
-    "color_brightness": (OBPropertyID.OB_PROP_COLOR_BRIGHTNESS_INT, int),
-    "color_contrast": (OBPropertyID.OB_PROP_COLOR_CONTRAST_INT, int),
-    "color_exposure_time": (OBPropertyID.OB_PROP_COLOR_EXPOSURE_INT, int),
-    "color_gain": (OBPropertyID.OB_PROP_COLOR_GAIN_INT, int),
-    "color_gamma": (OBPropertyID.OB_PROP_COLOR_GAMMA_INT, int),
-    "color_hue": (OBPropertyID.OB_PROP_COLOR_HUE_INT, int),
-    "color_saturation": (OBPropertyID.OB_PROP_COLOR_SATURATION_INT, int),
-    "color_sharpness": (OBPropertyID.OB_PROP_COLOR_SHARPNESS_INT, int),
-    "color_white_balance": (OBPropertyID.OB_PROP_COLOR_WHITE_BALANCE_INT, int),
-    "depth_auto_exposure": (OBPropertyID.OB_PROP_DEPTH_AUTO_EXPOSURE_BOOL, bool),
-    "depth_exposure_time": (OBPropertyID.OB_PROP_DEPTH_EXPOSURE_INT, int),
-    "depth_gain": (OBPropertyID.OB_PROP_DEPTH_GAIN_INT, int),
-    "laser_power_level": (OBPropertyID.OB_PROP_LASER_POWER_LEVEL_CONTROL_INT, int),
-    "laser_state": (OBPropertyID.OB_PROP_LASER_BOOL, bool),
-}
+if HAS_ORBBEC:
+    CAMERA_PARAMS_MAP = {
+        "color_auto_exposure": (OBPropertyID.OB_PROP_COLOR_AUTO_EXPOSURE_BOOL, bool),
+        "color_auto_white_balance": (OBPropertyID.OB_PROP_COLOR_AUTO_WHITE_BALANCE_BOOL, bool),
+        "color_brightness": (OBPropertyID.OB_PROP_COLOR_BRIGHTNESS_INT, int),
+        "color_contrast": (OBPropertyID.OB_PROP_COLOR_CONTRAST_INT, int),
+        "color_exposure_time": (OBPropertyID.OB_PROP_COLOR_EXPOSURE_INT, int),
+        "color_gain": (OBPropertyID.OB_PROP_COLOR_GAIN_INT, int),
+        "color_gamma": (OBPropertyID.OB_PROP_COLOR_GAMMA_INT, int),
+        "color_hue": (OBPropertyID.OB_PROP_COLOR_HUE_INT, int),
+        "color_saturation": (OBPropertyID.OB_PROP_COLOR_SATURATION_INT, int),
+        "color_sharpness": (OBPropertyID.OB_PROP_COLOR_SHARPNESS_INT, int),
+        "color_white_balance": (OBPropertyID.OB_PROP_COLOR_WHITE_BALANCE_INT, int),
+        "depth_auto_exposure": (OBPropertyID.OB_PROP_DEPTH_AUTO_EXPOSURE_BOOL, bool),
+        "depth_exposure_time": (OBPropertyID.OB_PROP_DEPTH_EXPOSURE_INT, int),
+        "depth_gain": (OBPropertyID.OB_PROP_DEPTH_GAIN_INT, int),
+        "laser_power_level": (OBPropertyID.OB_PROP_LASER_POWER_LEVEL_CONTROL_INT, int),
+        "laser_state": (OBPropertyID.OB_PROP_LASER_BOOL, bool),
+    }
+else:
+    CAMERA_PARAMS_MAP = {}
 
 
 @dataclass
@@ -121,8 +124,10 @@ class CameraManager:
             ctx = Context()
             device_list = ctx.query_devices()
             if device_list.get_count() == 0:
-                logger.error("No Orbbec device found")
-                return False
+                logger.warning("No Orbbec device found, using mock mode")
+                self.pipeline = None
+                self.is_initialized = True
+                return True
 
             self.pipeline = Pipeline()
             self.config = Config()
@@ -248,13 +253,14 @@ class CameraManager:
             logger.error(f"Failed to get frames: {e}")
             return None
 
-    def generate_point_cloud(self, frame_data: FrameData, colored: bool = True) -> Optional[PointCloudData]:
+    def generate_point_cloud(self, frame_data: FrameData, colored: bool = True, stride: int = 1) -> Optional[PointCloudData]:
         try:
             if not frame_data or frame_data.depth is None:
                 return None
 
             height, width = frame_data.depth.shape
             depth_scale = frame_data.depth_scale
+            stride = max(1, int(stride or 1))
 
             intrinsics = self.get_camera_intrinsics()
             fx = intrinsics.fx if intrinsics else width / 2
@@ -262,19 +268,21 @@ class CameraManager:
             cx = intrinsics.cx if intrinsics else width / 2
             cy = intrinsics.cy if intrinsics else height / 2
 
-            v, u = np.mgrid[0:height, 0:width]
-            z = frame_data.depth.astype(np.float32) * depth_scale
+            v, u = np.mgrid[0:height:stride, 0:width:stride]
+            sampled_depth = frame_data.depth[::stride, ::stride]
+            z = sampled_depth.astype(np.float32) * depth_scale
             x = (u - cx) * z / fx
             y = (v - cy) * z / fy
 
             points = np.stack([x, y, z], axis=-1).reshape(-1, 3)
             valid_mask = z.reshape(-1) > 0
-            valid_indices = np.where(valid_mask)[0]
+            pixel_indices = (v * width + u).reshape(-1)
+            valid_indices = pixel_indices[valid_mask]
             points = points[valid_mask]
 
             colors = None
             if colored and frame_data.color is not None:
-                colors = frame_data.color.reshape(-1, 3)[valid_mask]
+                colors = frame_data.color[::stride, ::stride].reshape(-1, 3)[valid_mask]
 
             return PointCloudData(
                 points=points,
