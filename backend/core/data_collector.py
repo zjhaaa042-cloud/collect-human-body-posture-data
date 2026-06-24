@@ -151,7 +151,18 @@ class DataCollector:
 
                 depth_png_filename = f"depth_{capture_id}_{timestamp_str}.png"
                 depth_png_path = self.current_session / "depth" / depth_png_filename
-                cv2.imwrite(str(depth_png_path), frame_data.depth, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                depth_vis = frame_data.depth.copy().astype(np.float32)
+                valid_mask = depth_vis > 0
+                if np.any(valid_mask):
+                    d_min = np.percentile(depth_vis[valid_mask], 2)
+                    d_max = np.percentile(depth_vis[valid_mask], 98)
+                    depth_vis = np.clip(depth_vis, d_min, d_max)
+                    depth_norm = cv2.normalize(depth_vis, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                    depth_norm[~valid_mask] = 0
+                    depth_colored = cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
+                    cv2.imwrite(str(depth_png_path), depth_colored, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                else:
+                    cv2.imwrite(str(depth_png_path), frame_data.depth, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
             if config.save_pointcloud and point_cloud is not None:
                 pc_filename = f"pc_{capture_id}_{timestamp_str}.ply"
