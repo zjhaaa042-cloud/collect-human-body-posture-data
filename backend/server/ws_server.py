@@ -391,6 +391,16 @@ class WebSocketServer:
         import time
         time.sleep(0.5)
         self.stop()
+        import subprocess
+        import os
+        ppid = os.getppid()
+        subprocess.Popen(
+            f'taskkill /F /T /PID {ppid}',
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        os._exit(0)
 
 
 async def main():

@@ -229,6 +229,15 @@ function App() {
     });
   }, [sendCommand]);
 
+  useEffect(() => {
+    if (shutdown) {
+      const timer = setTimeout(() => {
+        try { window.close(); } catch (e) {}
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [shutdown]);
+
   if (shutdown) {
     return (
       <div style={{
