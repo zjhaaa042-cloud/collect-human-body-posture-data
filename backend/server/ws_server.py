@@ -336,7 +336,6 @@ class WebSocketServer:
 
     async def start(self):
         try:
-            # Store reference to main event loop for voice callbacks
             self.loop = asyncio.get_event_loop()
             
             camera_ok = self.camera.initialize(
@@ -353,7 +352,7 @@ class WebSocketServer:
             else:
                 logger.warning("Failed to initialize camera, using mock mode")
 
-            server = await websockets.serve(self._handle_client, self.host, self.port)
+            self._ws_server = await websockets.serve(self._handle_client, self.host, self.port)
             logger.info(f"WebSocket server started on ws://{self.host}:{self.port}")
 
             if camera_ok:
@@ -364,13 +363,15 @@ class WebSocketServer:
             if self.voice_synthesizer:
                 self.voice_synthesizer.speak("系统已启动", blocking=False)
 
-            await server.wait_closed()
+            await self._ws_server.wait_closed()
         except Exception as e:
             logger.error(f"Server error: {e}")
             raise
 
     def stop(self):
         self.is_previewing = False
+        if hasattr(self, '_ws_server') and self._ws_server:
+            self._ws_server.close()
         if self.camera:
             self.camera.release()
         if self.voice_recognizer:
@@ -380,8 +381,6 @@ class WebSocketServer:
     def _shutdown(self):
         logger.info("Shutting down application...")
         self.stop()
-        import sys
-        sys.exit(0)
 
 
 async def main():
