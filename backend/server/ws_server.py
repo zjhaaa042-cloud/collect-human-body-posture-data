@@ -390,18 +390,17 @@ class WebSocketServer:
             )
         import time
         time.sleep(0.5)
-        self.stop()
-        import subprocess, os, sys
+        import subprocess, os
         pid = os.getpid()
         subprocess.Popen(
-            f'cmd /c "timeout /t 2 /nobreak >nul & taskkill /F /PID {pid} & taskkill /F /FI "IMAGENAME eq cmd.exe" /FI "WINDOWTITLE eq *run_backend*" /FI "WINDOWTITLE eq *run_frontend*""',
+            f'cmd /c "timeout /t 2 /nobreak >nul & taskkill /F /PID {pid}"',
             shell=True,
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True
         )
-        sys.exit(0)
+        self.stop()
 
 
 async def main():
