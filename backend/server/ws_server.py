@@ -380,6 +380,16 @@ class WebSocketServer:
 
     def _shutdown(self):
         logger.info("Shutting down application...")
+        if self.loop and self.clients:
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast({
+                    "type": "shutdown",
+                    "data": {"message": "系统已关闭"}
+                }),
+                self.loop
+            )
+        import time
+        time.sleep(0.5)
         self.stop()
 
 

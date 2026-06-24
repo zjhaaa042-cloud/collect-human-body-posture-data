@@ -13,6 +13,7 @@ const WS_URL = 'ws://localhost:8765';
 
 function App() {
   const [connected, setConnected] = useState(false);
+  const [shutdown, setShutdown] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [distanceInfo, setDistanceInfo] = useState(null);
   const [captureResult, setCaptureResult] = useState(null);
@@ -121,6 +122,10 @@ function App() {
             case 'exit_confirm':
               message.info(data.data.message);
               break;
+            case 'shutdown':
+              setShutdown(true);
+              setConnected(false);
+              break;
             case 'capture_image':
               if (data.data.image) {
                 setSelectedImage(`data:image/jpeg;base64,${data.data.image}`);
@@ -223,6 +228,23 @@ function App() {
       }
     });
   }, [sendCommand]);
+
+  if (shutdown) {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        height: '100vh', background: '#0D0D0D', color: '#fff'
+      }}>
+        <svg width="64" height="64" viewBox="0 0 32 32" fill="none" style={{ marginBottom: 24 }}>
+          <rect width="32" height="32" rx="8" fill="#FF6900" />
+          <path d="M16 8L22 12V20L16 24L10 20V12L16 8Z" fill="white" fillOpacity="0.9" />
+        </svg>
+        <h2 style={{ marginBottom: 8 }}>系统已关闭</h2>
+        <p style={{ color: '#808080', marginBottom: 24 }}>采集系统服务已停止运行</p>
+        <Button type="primary" onClick={() => window.location.reload()}>重新连接</Button>
+      </div>
+    );
+  }
 
   return (
     <ConfigProvider
