@@ -1,29 +1,29 @@
 ==========================================
-  Body Posture Data Collection System
+  人体体态数据采集系统
 ==========================================
 
-QUICK START
------------
-Double-click: go.bat
+快速启动
+--------
+双击运行：go.bat
 
-This starts both backend and frontend.
-
-
-MANUAL START
-------------
-1. run.bat          (start backend)
-2. run_frontend.bat (start frontend, new terminal)
+该脚本会同时启动后端服务和前端界面。
 
 
-URLs
-----
-Backend:  ws://localhost:8765
-Frontend: http://localhost:3000
+手动启动
+--------
+1. run.bat           启动后端
+2. run_frontend.bat  启动前端
 
 
-VOICE COMMANDS
---------------
-"开始采集" - Start capture
-"停止"     - Stop
-"下一个"   - Next
-"完成"     - Finish
+访问地址
+--------
+后端：ws://localhost:8765
+前端：http://localhost:3000
+
+
+语音指令
+--------
+"开始采集" - 开始采集
+"停止"     - 停止当前操作
+"下一个"   - 准备下一次采集
+"完成"     - 结束采集会话

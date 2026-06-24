@@ -1,32 +1,39 @@
 :root {
-  --primary: #FF6900;
-  --primary-light: #FF8533;
-  --primary-dark: #E55D00;
+  --primary: #2F6F9F;
+  --primary-light: #E4F0F7;
+  --primary-dark: #235777;
+  --accent: #1F9D8A;
+  --accent-light: #E5F6F2;
 
-  --bg-primary: #0D0D0D;
-  --bg-secondary: #1A1A1A;
-  --bg-tertiary: #2A2A2A;
-  --bg-card: #2A2A2A;
+  --bg-primary: #EEF3F7;
+  --bg-secondary: #F7FAFC;
+  --bg-tertiary: #E6EDF2;
+  --bg-card: #FFFFFF;
+  --bg-ink: #0E151B;
 
-  --text-primary: #FFFFFF;
-  --text-secondary: #B3B3B3;
-  --text-tertiary: #808080;
+  --text-primary: #1F2A33;
+  --text-secondary: #60727F;
+  --text-tertiary: #8796A1;
+  --text-inverse: #FFFFFF;
 
-  --success: #00C853;
-  --warning: #FFD600;
-  --error: #FF1744;
+  --border-subtle: #D7E1E8;
+  --border-strong: #B8CAD6;
 
-  --distance-close: #FF1744;
-  --distance-optimal: #00C853;
-  --distance-far: #FFD600;
+  --success: #1F9D8A;
+  --warning: #C58A12;
+  --error: #C84A4A;
 
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  --distance-close: var(--error);
+  --distance-optimal: var(--success);
+  --distance-far: var(--warning);
 
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 2px rgba(23, 42, 58, 0.08);
+  --shadow-md: 0 8px 24px rgba(23, 42, 58, 0.10);
+  --shadow-lg: 0 18px 44px rgba(23, 42, 58, 0.14);
 
   --font-xs: 12px;
   --font-sm: 14px;
@@ -42,18 +49,33 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
 body {
-  font-family: 'MiSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'MiSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
+  overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -61,12 +83,18 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-tertiary);
-  border-radius: 3px;
+  background: #B9C8D3;
+  border: 2px solid var(--bg-secondary);
+  border-radius: 8px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-tertiary);
+  background: #90A6B6;
+}
+
+.accent-number {
+  color: var(--primary) !important;
+  font-variant-numeric: tabular-nums;
 }
 
 .version-text {

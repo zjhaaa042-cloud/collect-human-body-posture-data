@@ -33,6 +33,7 @@ const VoiceIndicator = ({ active }) => {
       }
       setBars([2, 2, 2, 2, 2]);
     }
+
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -60,7 +61,7 @@ const StatusBar = ({ connected, captureCount, sessionId, voiceActive }) => {
   return (
     <div className="status-bar">
       <div className="status-left">
-        <Space size="middle">
+        <Space size="middle" wrap>
           <div className="status-item">
             {connected ? (
               <Tag icon={<CheckCircleOutlined />} color="success" bordered={false}>
@@ -75,9 +76,9 @@ const StatusBar = ({ connected, captureCount, sessionId, voiceActive }) => {
 
           <div className="status-item status-voice-section">
             <VoiceIndicator active={voiceActive} />
-            <Tag 
-              icon={voiceActive ? <AudioOutlined /> : <CheckCircleOutlined />} 
-              color={voiceActive ? "processing" : "success"} 
+            <Tag
+              icon={voiceActive ? <AudioOutlined /> : <CheckCircleOutlined />}
+              color={voiceActive ? 'processing' : 'success'}
               bordered={false}
             >
               {voiceActive ? '正在聆听...' : '语音就绪'}
@@ -87,19 +88,19 @@ const StatusBar = ({ connected, captureCount, sessionId, voiceActive }) => {
           <div className="status-item">
             <SaveOutlined />
             <Text type="secondary">
-              已采集: <Text strong style={{ color: '#FF6900' }}>{captureCount}</Text> 组
+              已采集 <Text strong className="accent-number">{captureCount}</Text> 组
             </Text>
           </div>
         </Space>
       </div>
 
       <div className="status-right">
-        <Space size="middle">
+        <Space size="middle" wrap>
           {sessionId && (
             <div className="status-item">
               <FolderOutlined />
               <Text type="secondary">
-                会话: <Text strong>{sessionId}</Text>
+                会话：<Text strong>{sessionId}</Text>
               </Text>
             </div>
           )}

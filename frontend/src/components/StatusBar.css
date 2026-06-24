@@ -2,9 +2,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 44px;
   padding: 8px 20px;
-  background: var(--bg-secondary);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.94);
+  border-top: 1px solid var(--border-subtle);
+  box-shadow: 0 -1px 8px rgba(23, 42, 58, 0.04);
   font-size: 13px;
 }
 
@@ -12,12 +14,14 @@
 .status-right {
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 
 .status-item {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .status-item .anticon {
@@ -28,8 +32,8 @@
 .status-item .ant-tag {
   margin: 0;
   border: none;
-  padding: 1px 6px;
-  line-height: 1.4;
+  padding: 1px 7px;
+  line-height: 1.5;
   font-size: 12px;
 }
 
@@ -47,17 +51,26 @@
 
 .status-voice-bar {
   width: 3px;
-  background: var(--text-tertiary);
-  border-radius: 1.5px;
+  background: #AAB8C2;
+  border-radius: 2px;
   transition: height 0.05s ease;
 }
 
 .status-voice-indicator.active .status-voice-bar {
-  background: var(--primary);
-  box-shadow: 0 0 4px rgba(255, 105, 0, 0.5);
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(31, 157, 138, 0.10);
 }
 
 .version-text {
   font-size: 11px;
   color: var(--text-tertiary);
+}
+
+@media (max-width: 760px) {
+  .status-bar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px;
+  }
 }

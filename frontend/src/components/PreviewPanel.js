@@ -1,38 +1,46 @@
-import React from 'react';
+import React, { useRef, useCallback } from 'react';
 import { Card, Tag, Typography, Space, Tooltip } from 'antd';
-import { VideoCameraOutlined, EyeOutlined, FullscreenOutlined } from '@ant-design/icons';
+import {
+  VideoCameraOutlined,
+  EyeOutlined,
+  FullscreenOutlined,
+  RadarChartOutlined
+} from '@ant-design/icons';
 import './PreviewPanel.css';
 
 const { Text } = Typography;
 
+const statusColors = {
+  optimal: '#1F9D8A',
+  too_close: '#C84A4A',
+  too_far: '#C58A12',
+  no_data: '#8796A1',
+  no_human: '#8796A1'
+};
+
+const statusLabels = {
+  optimal: '距离合适',
+  too_close: '太近',
+  too_far: '太远',
+  no_data: '无数据',
+  no_human: '未识别到人体'
+};
+
 const DistanceIndicator = ({ distanceInfo }) => {
   if (!distanceInfo) return null;
 
-  const statusColors = {
-    optimal: '#00C853',
-    too_close: '#FF1744',
-    too_far: '#FFD600',
-    no_data: '#808080',
-    no_human: '#808080'
-  };
-
-  const statusLabels = {
-    optimal: '距离合适',
-    too_close: '太近',
-    too_far: '太远',
-    no_data: '无数据',
-    no_human: '未识别到人体'
-  };
-
-  const color = statusColors[distanceInfo.status] || '#808080';
-  const label = statusLabels[distanceInfo.status] || '未知';
+  const color = statusColors[distanceInfo.status] || '#8796A1';
+  const label = statusLabels[distanceInfo.status] || '未知状态';
   const distanceM = distanceInfo.distance_mm ? (distanceInfo.distance_mm / 1000).toFixed(2) : '--';
 
   return (
-    <div className="distance-indicator" style={{ borderColor: color }}>
-      <div>
-        <span className="distance-value" style={{ color }}>{distanceM}</span>
-        <span className="distance-unit">米</span>
+    <div className="distance-indicator" style={{ '--distance-color': color }}>
+      <div className="distance-summary">
+        <RadarChartOutlined />
+        <div>
+          <span className="distance-value">{distanceM}</span>
+          <span className="distance-unit">米</span>
+        </div>
       </div>
       <Tag color={color} className="distance-tag">
         {label}
@@ -42,6 +50,17 @@ const DistanceIndicator = ({ distanceInfo }) => {
 };
 
 const PreviewPanel = ({ previewData, distanceInfo, isCapturing }) => {
+  const panelRef = useRef(null);
+
+  const handleFullscreen = useCallback(() => {
+    if (!panelRef.current) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      panelRef.current.requestFullscreen();
+    }
+  }, []);
+
   const colorSrc = previewData?.color
     ? `data:image/jpeg;base64,${previewData.color}`
     : null;
@@ -51,7 +70,7 @@ const PreviewPanel = ({ previewData, distanceInfo, isCapturing }) => {
     : null;
 
   return (
-    <div className="preview-panel">
+    <div className="preview-panel" ref={panelRef}>
       <Card
         title={
           <div className="preview-header">
@@ -59,21 +78,21 @@ const PreviewPanel = ({ previewData, distanceInfo, isCapturing }) => {
               <VideoCameraOutlined />
               <span>实时预览</span>
             </Space>
-            <Tooltip title="全屏">
-              <FullscreenOutlined style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} />
+            <Tooltip title="全屏预览">
+              <FullscreenOutlined className="preview-action" onClick={handleFullscreen} />
             </Tooltip>
           </div>
         }
         className="preview-card"
-        bordered={false}
+        variant="borderless"
       >
         <div className="preview-container">
           <div className="preview-window">
             <div className="preview-label">
-              <EyeOutlined /> 彩色画面
+              <EyeOutlined /> RGB 彩色画面
             </div>
             {colorSrc ? (
-              <img src={colorSrc} alt="Color Preview" className="preview-image" />
+              <img src={colorSrc} alt="RGB 彩色预览" className="preview-image" />
             ) : (
               <div className="preview-placeholder">
                 <VideoCameraOutlined />
@@ -93,7 +112,7 @@ const PreviewPanel = ({ previewData, distanceInfo, isCapturing }) => {
               <EyeOutlined /> 深度画面
             </div>
             {depthSrc ? (
-              <img src={depthSrc} alt="Depth Preview" className="preview-image" />
+              <img src={depthSrc} alt="深度预览" className="preview-image" />
             ) : (
               <div className="preview-placeholder">
                 <VideoCameraOutlined />

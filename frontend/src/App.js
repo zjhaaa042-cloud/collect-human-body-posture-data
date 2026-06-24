@@ -1,17 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ConfigProvider, theme, Layout, Typography, Space, Button, message, Modal } from 'antd';
-import { SettingOutlined, QuestionCircleOutlined, PoweroffOutlined } from '@ant-design/icons';
+import { ConfigProvider, App as AntApp, theme, Layout, Typography, Space, Button, Tooltip } from 'antd';
+import {
+  AimOutlined,
+  SettingOutlined,
+  QuestionCircleOutlined,
+  PoweroffOutlined
+} from '@ant-design/icons';
 import PreviewPanel from './components/PreviewPanel';
 import ControlPanel from './components/ControlPanel';
 import StatusBar from './components/StatusBar';
 import './styles/App.css';
 
 const { Header, Content, Footer } = Layout;
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 const WS_URL = 'ws://localhost:8765';
 
-function App() {
+function AppContent() {
+  const { message, modal } = AntApp.useApp();
   const [connected, setConnected] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [distanceInfo, setDistanceInfo] = useState(null);
@@ -45,13 +51,16 @@ function App() {
       const percent = (x / rect.width) * 100;
       setLeftPanelWidth(Math.min(Math.max(percent, 30), 80));
     };
+
     const handleResizeEnd = () => {
       isResizing.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
+
     window.addEventListener('mousemove', handleResizeMove);
     window.addEventListener('mouseup', handleResizeEnd);
+
     return () => {
       window.removeEventListener('mousemove', handleResizeMove);
       window.removeEventListener('mouseup', handleResizeEnd);
@@ -96,7 +105,7 @@ function App() {
                 wsRef.current?.send(JSON.stringify({ type: 'get_sessions' }));
                 wsRef.current?.send(JSON.stringify({ type: 'get_captures' }));
               } else {
-                message.error('采集失败: ' + data.data.error);
+                message.error(`采集失败：${data.data.error}`);
               }
               setIsCapturing(false);
               break;
@@ -170,7 +179,7 @@ function App() {
       console.error('Failed to connect:', e);
       message.error('连接失败');
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     shouldReconnectRef.current = true;
@@ -196,7 +205,7 @@ function App() {
     } catch (e) {
       message.error('发送命令失败');
     }
-  }, []);
+  }, [message]);
 
   const handleCapture = useCallback((options) => {
     if (!connected) {
@@ -205,7 +214,7 @@ function App() {
     }
     setIsCapturing(true);
     sendCommand('capture_single', { options });
-  }, [sendCommand, connected]);
+  }, [sendCommand, connected, message]);
 
   const handleCreateSession = useCallback((sessionName) => {
     sendCommand('create_session', { session_name: sessionName });
@@ -228,7 +237,7 @@ function App() {
   }, [sendCommand]);
 
   const handleExit = useCallback(() => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认退出',
       content: '确定要关闭采集系统吗？',
       okText: '确定退出',
@@ -246,111 +255,128 @@ function App() {
         }, 2000);
       }
     });
-  }, [sendCommand]);
+  }, [sendCommand, modal, message]);
 
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: theme.darkAlgorithm,
-        token: {
-          colorPrimary: '#FF6900',
-          colorBgContainer: '#1A1A1A',
-          colorBgElevated: '#2A2A2A',
-          borderRadius: 12,
-          colorText: '#FFFFFF',
-          colorTextSecondary: '#B3B3B3',
-        },
-      }}
-    >
-      <Layout className="app-layout">
-        <Header className="app-header">
-          <div className="header-left">
-            <div className="logo">
-              <div className="logo-icon">
-                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" role="img" aria-label="Logo">
-                  <rect width="32" height="32" rx="8" fill="url(#gradient)" />
-                  <path d="M16 8L22 12V20L16 24L10 20V12L16 8Z" fill="white" fillOpacity="0.9" />
-                  <defs>
-                    <linearGradient id="gradient" x1="0" y1="0" x2="32" y2="32">
-                      <stop stopColor="#FF6900" />
-                      <stop offset="1" stopColor="#FF8533" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-              </div>
+    <Layout className="app-layout">
+      <Header className="app-header">
+        <div className="header-left">
+          <div className="logo">
+            <div className="logo-icon" aria-hidden="true">
+              <AimOutlined />
+            </div>
+            <div className="logo-copy">
               <Title level={4} className="logo-text">体态数据采集系统</Title>
+              <Text className="logo-subtitle">Posture Capture Lab</Text>
             </div>
           </div>
-          <div className="header-right">
-            <Space>
-              <Button type="text" icon={<SettingOutlined />} className="header-btn" />
-              <Button type="text" icon={<QuestionCircleOutlined />} className="header-btn" />
+        </div>
+
+        <div className="header-right">
+          <Space size={8}>
+            <Tooltip title="系统设置">
+              <Button type="text" icon={<SettingOutlined />} className="header-btn" aria-label="系统设置" />
+            </Tooltip>
+            <Tooltip title="帮助说明">
+              <Button type="text" icon={<QuestionCircleOutlined />} className="header-btn" aria-label="帮助说明" />
+            </Tooltip>
+            <Tooltip title="退出系统">
               <Button
                 type="text"
                 icon={<PoweroffOutlined />}
                 className="header-btn exit-btn"
                 onClick={handleExit}
                 danger
+                aria-label="退出系统"
               />
-            </Space>
+            </Tooltip>
+          </Space>
+        </div>
+      </Header>
+
+      <Content className="app-content">
+        <div className="main-container" ref={containerRef}>
+          <div className="panel-left" style={{ width: `${leftPanelWidth}%` }}>
+            <PreviewPanel
+              previewData={previewData}
+              distanceInfo={distanceInfo}
+              isCapturing={isCapturing}
+            />
           </div>
-        </Header>
 
-        <Content className="app-content">
-          <div className="main-container" ref={containerRef}>
-            <div className="panel-left" style={{ width: `${leftPanelWidth}%` }}>
-              <PreviewPanel
-                previewData={previewData}
-                distanceInfo={distanceInfo}
-                isCapturing={isCapturing}
-              />
-            </div>
+          <div className="panel-splitter" onMouseDown={handleResizeStart} role="separator" aria-orientation="vertical" />
 
-            <div className="panel-splitter" onMouseDown={handleResizeStart} role="separator" aria-orientation="vertical" />
-            
-            <div className="panel-right" style={{ width: `${100 - leftPanelWidth}%` }}>
-              <ControlPanel
-                connected={connected}
-                distanceInfo={distanceInfo}
-                isCapturing={isCapturing}
-                captureCount={captureCount}
-                captureHistory={captureHistory}
-                sessionId={sessionId}
-                sessions={sessions}
-                voiceActive={voiceActive}
-                onCapture={handleCapture}
-                onCreateSession={handleCreateSession}
-                onSelectSession={handleSelectSession}
-                onFinishSession={handleFinishSession}
-                onRefreshSessions={handleRefreshSessions}
-                onViewImage={handleViewImage}
-              />
-            </div>
+          <div className="panel-right" style={{ width: `${100 - leftPanelWidth}%` }}>
+            <ControlPanel
+              connected={connected}
+              distanceInfo={distanceInfo}
+              captureResult={captureResult}
+              isCapturing={isCapturing}
+              captureCount={captureCount}
+              captureHistory={captureHistory}
+              sessionId={sessionId}
+              sessions={sessions}
+              voiceActive={voiceActive}
+              onCapture={handleCapture}
+              onCreateSession={handleCreateSession}
+              onSelectSession={handleSelectSession}
+              onFinishSession={handleFinishSession}
+              onRefreshSessions={handleRefreshSessions}
+              onViewImage={handleViewImage}
+            />
           </div>
-        </Content>
+        </div>
+      </Content>
 
-        <Footer className="app-footer">
-          <StatusBar
-            connected={connected}
-            captureCount={captureCount}
-            sessionId={sessionId}
-            voiceActive={voiceActive}
-          />
-        </Footer>
-      </Layout>
+      <Footer className="app-footer">
+        <StatusBar
+          connected={connected}
+          captureCount={captureCount}
+          sessionId={sessionId}
+          voiceActive={voiceActive}
+        />
+      </Footer>
 
-      <Modal
-        open={!!selectedImage}
-        title="采集图像"
-        footer={null}
-        onCancel={() => setSelectedImage(null)}
-        width={700}
-        centered
-      >
-        {selectedImage && (
-          <img src={selectedImage} alt="capture" style={{ width: '100%' }} />
-        )}
-      </Modal>
+      {selectedImage && (
+        <div className="image-modal-overlay" onClick={() => setSelectedImage(null)}>
+          <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="image-modal-header">
+              <span>采集图像预览</span>
+              <button className="image-modal-close" onClick={() => setSelectedImage(null)}>&times;</button>
+            </div>
+            <img src={selectedImage} alt="采集图像" className="capture-preview-image" />
+          </div>
+        </div>
+      )}
+    </Layout>
+  );
+}
+
+function App() {
+  return (
+    <ConfigProvider
+      theme={{
+        algorithm: theme.defaultAlgorithm,
+        token: {
+          colorPrimary: '#2F6F9F',
+          colorInfo: '#2F6F9F',
+          colorSuccess: '#1F9D8A',
+          colorWarning: '#C58A12',
+          colorError: '#C84A4A',
+          colorBgLayout: '#EEF3F7',
+          colorBgContainer: '#FFFFFF',
+          colorBgElevated: '#FFFFFF',
+          colorText: '#1F2A33',
+          colorTextSecondary: '#60727F',
+          colorBorder: '#D7E1E8',
+          borderRadius: 8,
+          wireframe: false
+        }
+      }}
+    >
+      <AntApp>
+        <AppContent />
+      </AntApp>
     </ConfigProvider>
   );
 }
