@@ -74,22 +74,32 @@
   display: flex;
   height: calc(100vh - 56px - 48px - 32px);
   min-height: 400px;
-  gap: 16px;
 }
 
 .panel-left {
-  flex: 7;
   height: 100%;
   overflow: hidden;
-  min-width: 0;
+  min-width: 200px;
+}
+
+.panel-splitter {
+  width: 6px;
+  cursor: col-resize;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+.panel-splitter:hover {
+  background: rgba(255, 105, 0, 0.5);
 }
 
 .panel-right {
-  flex: 3;
   height: 100%;
   overflow: hidden;
-  min-width: 280px;
-  max-width: 400px;
+  min-width: 260px;
 }
 
 .app-footer {

@@ -23,7 +23,38 @@ function App() {
   const [voiceActive, setVoiceActive] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(70);
+  const isResizing = useRef(false);
+  const containerRef = useRef(null);
   const wsRef = useRef(null);
+
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault();
+    isResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleResizeMove = (e) => {
+      if (!isResizing.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const percent = (x / rect.width) * 100;
+      setLeftPanelWidth(Math.min(Math.max(percent, 30), 80));
+    };
+    const handleResizeEnd = () => {
+      isResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', handleResizeMove);
+    window.addEventListener('mouseup', handleResizeEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleResizeMove);
+      window.removeEventListener('mouseup', handleResizeEnd);
+    };
+  }, []);
 
   const connectWebSocket = useCallback(() => {
     try {
@@ -226,16 +257,18 @@ function App() {
         </Header>
 
         <Content className="app-content">
-          <div className="main-container">
-            <div className="panel-left">
+          <div className="main-container" ref={containerRef}>
+            <div className="panel-left" style={{ width: `${leftPanelWidth}%` }}>
               <PreviewPanel
                 previewData={previewData}
                 distanceInfo={distanceInfo}
                 isCapturing={isCapturing}
               />
             </div>
+
+            <div className="panel-splitter" onMouseDown={handleResizeStart} />
             
-            <div className="panel-right">
+            <div className="panel-right" style={{ width: `${100 - leftPanelWidth}%` }}>
               <ControlPanel
                 connected={connected}
                 distanceInfo={distanceInfo}
