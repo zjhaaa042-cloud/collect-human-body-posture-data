@@ -51,6 +51,17 @@ class PointCloudData:
     points: np.ndarray
     colors: Optional[np.ndarray]
     point_count: int
+    pixel_indices: Optional[np.ndarray] = None
+
+
+@dataclass
+class CameraIntrinsics:
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    width: int
+    height: int
 
 
 class CameraManager:
@@ -254,13 +265,15 @@ class CameraManager:
                     rgb = points_data[:, 3:6] / 255.0
 
                     valid_mask = ~np.all(xyz == 0, axis=1)
+                    valid_indices = np.where(valid_mask)[0]
                     xyz = xyz[valid_mask]
                     rgb = rgb[valid_mask] if colored else None
 
                     return PointCloudData(
                         points=xyz,
                         colors=(rgb * 255).astype(np.uint8) if rgb is not None else None,
-                        point_count=len(xyz)
+                        point_count=len(xyz),
+                        pixel_indices=valid_indices
                     )
 
             height, width = frame_data.depth.shape
@@ -273,6 +286,7 @@ class CameraManager:
 
             points = np.stack([x, y, z], axis=-1).reshape(-1, 3)
             valid_mask = z.reshape(-1) > 0
+            valid_indices = np.where(valid_mask)[0]
             points = points[valid_mask]
 
             colors = None
@@ -282,7 +296,8 @@ class CameraManager:
             return PointCloudData(
                 points=points,
                 colors=colors,
-                point_count=len(points)
+                point_count=len(points),
+                pixel_indices=valid_indices
             )
         except Exception as e:
             logger.error(f"Failed to generate point cloud: {e}")
@@ -325,6 +340,24 @@ class CameraManager:
         except Exception as e:
             logger.error(f"Failed to get device info: {e}")
             return {}
+
+    def get_camera_intrinsics(self) -> Optional[CameraIntrinsics]:
+        try:
+            if HAS_ORBBEC and self.pipeline:
+                param = self.pipeline.get_camera_param()
+                intrinsic = param.rgb_intrinsic
+                return CameraIntrinsics(
+                    fx=intrinsic.fx,
+                    fy=intrinsic.fy,
+                    cx=intrinsic.cx,
+                    cy=intrinsic.cy,
+                    width=intrinsic.width,
+                    height=intrinsic.height
+                )
+            return CameraIntrinsics(fx=500, fy=500, cx=320, cy=240, width=640, height=480)
+        except Exception as e:
+            logger.error(f"Failed to get camera intrinsics: {e}")
+            return None
 
     def release(self):
         try:

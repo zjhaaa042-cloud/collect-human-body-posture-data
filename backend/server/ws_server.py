@@ -115,7 +115,8 @@ class WebSocketServer:
                 min_color_brightness=self.settings.storage.min_color_brightness,
                 max_color_brightness=self.settings.storage.max_color_brightness
             )
-            result = self.data_collector.capture(frames, point_cloud, config)
+            intrinsics = self.camera.get_camera_intrinsics()
+            result = self.data_collector.capture(frames, point_cloud, config, camera_intrinsics=intrinsics)
 
             await self._broadcast({
                 "type": "capture_result",

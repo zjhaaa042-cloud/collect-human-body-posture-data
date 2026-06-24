@@ -98,7 +98,7 @@ class DataCollector:
             logger.error(f"Failed to create session: {e}")
             raise
 
-    def capture(self, frame_data, point_cloud=None, config: Optional[CaptureConfig] = None) -> CaptureResult:
+    def capture(self, frame_data, point_cloud=None, config: Optional[CaptureConfig] = None, camera_intrinsics=None) -> CaptureResult:
         try:
             if self.current_session is None:
                 raise ValueError("No active session. Call create_session first.")
@@ -139,17 +139,35 @@ class DataCollector:
             if config.save_depth and frame_data.depth is not None:
                 depth_filename = f"depth_{capture_id}_{timestamp_str}.npz"
                 depth_path = self.current_session / "depth" / depth_filename
-                np.savez_compressed(str(depth_path),
-                    depth=frame_data.depth,
-                    depth_scale=frame_data.depth_scale
-                )
+                save_dict = {
+                    "depth": frame_data.depth,
+                    "depth_scale": frame_data.depth_scale,
+                    "shape": np.array(frame_data.depth.shape)
+                }
+                if point_cloud is not None and point_cloud.pixel_indices is not None:
+                    save_dict["pixel_indices"] = point_cloud.pixel_indices
+                np.savez_compressed(str(depth_path), **save_dict)
                 result.depth_path = f"depth/{depth_filename}"
+
+                depth_png_filename = f"depth_{capture_id}_{timestamp_str}.png"
+                depth_png_path = self.current_session / "depth" / depth_png_filename
+                cv2.imwrite(str(depth_png_path), frame_data.depth, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
             if config.save_pointcloud and point_cloud is not None:
                 pc_filename = f"pc_{capture_id}_{timestamp_str}.ply"
                 pc_path = self.current_session / "pointcloud" / pc_filename
                 self._save_ply(point_cloud.points, point_cloud.colors, str(pc_path))
                 result.pointcloud_path = f"pointcloud/{pc_filename}"
+
+            if camera_intrinsics is not None:
+                self.session_metadata["camera"] = {
+                    "fx": camera_intrinsics.fx,
+                    "fy": camera_intrinsics.fy,
+                    "cx": camera_intrinsics.cx,
+                    "cy": camera_intrinsics.cy,
+                    "width": camera_intrinsics.width,
+                    "height": camera_intrinsics.height
+                }
 
             self.session_metadata["statistics"]["total_captures"] += 1
             self.session_metadata["statistics"]["successful_captures"] += 1
