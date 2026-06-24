@@ -111,7 +111,7 @@ class CameraManager:
             logger.error(f"Failed to load camera params: {e}")
             return False
 
-    def initialize(self, width: int = 640, height: int = 480, fps: int = 30, params_file: str = None) -> bool:
+    def initialize(self, width: int = 1280, height: int = 800, fps: int = 30, params_file: str = None) -> bool:
         try:
             if not HAS_ORBBEC:
                 logger.warning("Running in mock mode")
@@ -134,7 +134,11 @@ class CameraManager:
 
             depth_profiles = self.pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
             if depth_profiles:
-                depth_profile = depth_profiles.get_default_video_stream_profile()
+                try:
+                    depth_profile = depth_profiles.get_video_stream_profile(width, height, OBFormat.Y16, fps)
+                except Exception:
+                    depth_profile = depth_profiles.get_default_video_stream_profile()
+                    logger.warning(f"Depth sensor does not support {width}x{height}, using default profile")
                 self.config.enable_stream(depth_profile)
 
             self.config.set_frame_aggregate_output_mode(OBFrameAggregateOutputMode.FULL_FRAME_REQUIRE)
@@ -234,8 +238,8 @@ class CameraManager:
             else:
                 self.frame_count += 1
                 return FrameData(
-                    color=np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8),
-                    depth=np.random.randint(0, 4000, (480, 640), dtype=np.uint16),
+                    color=np.random.randint(0, 255, (800, 1280, 3), dtype=np.uint8),
+                    depth=np.random.randint(0, 4000, (800, 1280), dtype=np.uint16),
                     depth_scale=1.0,
                     timestamp=self.frame_count * 33,
                     frame_number=self.frame_count
@@ -333,7 +337,7 @@ class CameraManager:
                     width=intrinsic.width,
                     height=intrinsic.height
                 )
-            return CameraIntrinsics(fx=500, fy=500, cx=320, cy=240, width=640, height=480)
+            return CameraIntrinsics(fx=500, fy=500, cx=640, cy=400, width=1280, height=800)
         except Exception as e:
             logger.error(f"Failed to get camera intrinsics: {e}")
             return None

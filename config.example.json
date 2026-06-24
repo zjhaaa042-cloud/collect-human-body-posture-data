@@ -1,7 +1,7 @@
 {
   "camera": {
-    "width": 640,
-    "height": 480,
+    "width": 1280,
+    "height": 800,
     "fps": 30,
     "align_mode": "D2C_HW",
     "params_file": "config/camera_params.json"

@@ -6,8 +6,8 @@ from loguru import logger
 
 
 class CameraSettings(BaseModel):
-    width: int = 640
-    height: int = 480
+    width: int = 1280
+    height: int = 800
     fps: int = 30
     align_mode: str = "D2C_HW"
     params_file: Optional[str] = "config/camera_params.json"
