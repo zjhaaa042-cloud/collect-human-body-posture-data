@@ -389,18 +389,22 @@ class WebSocketServer:
                 self.loop
             )
         import time
-        time.sleep(0.5)
-        import subprocess, os
-        pid = os.getpid()
+        time.sleep(0.3)
+        self.stop()
+        import subprocess, os, tempfile
+        bat = os.path.join(tempfile.gettempdir(), "shutdown_cleanup.bat")
+        with open(bat, 'w') as f:
+            f.write('@echo off\r\n')
+            f.write('timeout /t 2 /nobreak >nul\r\n')
+            f.write(f'taskkill /F /PID {os.getpid()} 2>nul\r\n')
+            f.write('del "%~f0"\r\n')
         subprocess.Popen(
-            f'cmd /c "timeout /t 2 /nobreak >nul & taskkill /F /PID {pid}"',
+            f'cmd /c "{bat}"',
             shell=True,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            creationflags=0x00000008 | 0x00000200,
             close_fds=True
         )
-        self.stop()
+        os._exit(0)
 
 
 async def main():

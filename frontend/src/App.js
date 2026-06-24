@@ -7,7 +7,7 @@ import StatusBar from './components/StatusBar';
 import './styles/App.css';
 
 const { Header, Content, Footer } = Layout;
-const { Title } = Typography;
+const { Title, Text: AntText } = Typography;
 
 const WS_URL = 'ws://localhost:8765';
 
@@ -255,9 +255,9 @@ function App() {
               <defs><linearGradient id="g2" x1="0" y1="0" x2="32" y2="32"><stop stopColor="#FF6900" /><stop offset="1" stopColor="#FF8533" /></linearGradient></defs>
             </svg>
             <Title level={3} style={{ color: '#fff', marginBottom: 8 }}>系统已关闭</Title>
-            <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
+            <AntText type="secondary" style={{ display: 'block', marginBottom: 24 }}>
               采集系统服务已停止运行，请手动关闭此标签页
-            </Text>
+            </AntText>
             <Button type="primary" onClick={() => window.location.reload()}>重新连接</Button>
           </div>
         </Layout>
