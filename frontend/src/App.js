@@ -234,15 +234,7 @@ function App() {
 
   useEffect(() => {
     if (shutdown) {
-      const isElectron = typeof window !== 'undefined' && window.process && window.process.type;
-      if (isElectron) {
-        try {
-          const { remote } = window.require('electron');
-          remote.getCurrentWindow().close();
-        } catch (e) {
-          try { window.close(); } catch (err) {}
-        }
-      }
+      try { window.close(); } catch (e) {}
     }
   }, [shutdown]);
 

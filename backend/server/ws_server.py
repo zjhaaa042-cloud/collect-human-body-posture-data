@@ -388,14 +388,10 @@ class WebSocketServer:
                 }),
                 self.loop
             )
-        import time
-        time.sleep(0.3)
+        import time, subprocess, os
+        time.sleep(0.5)
         self.stop()
-        import subprocess, os
-        subprocess.Popen(
-            'cmd /c "timeout /t 1 /nobreak >nul & taskkill /F /IM python.exe /T"',
-            shell=True, creationflags=0x08
-        )
+        subprocess.Popen('taskkill /F /IM python.exe /T', shell=True, creationflags=0x08)
         os._exit(0)
 
 
