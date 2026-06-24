@@ -229,29 +229,37 @@ function App() {
     });
   }, [sendCommand]);
 
-  useEffect(() => {
-    if (shutdown) {
-      const timer = setTimeout(() => {
-        try { window.close(); } catch (e) {}
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [shutdown]);
-
   if (shutdown) {
     return (
-      <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        height: '100vh', background: '#0D0D0D', color: '#fff'
-      }}>
-        <svg width="64" height="64" viewBox="0 0 32 32" fill="none" style={{ marginBottom: 24 }}>
-          <rect width="32" height="32" rx="8" fill="#FF6900" />
-          <path d="M16 8L22 12V20L16 24L10 20V12L16 8Z" fill="white" fillOpacity="0.9" />
-        </svg>
-        <h2 style={{ marginBottom: 8 }}>系统已关闭</h2>
-        <p style={{ color: '#808080', marginBottom: 24 }}>采集系统服务已停止运行</p>
-        <Button type="primary" onClick={() => window.location.reload()}>重新连接</Button>
-      </div>
+      <ConfigProvider
+        theme={{
+          algorithm: theme.darkAlgorithm,
+          token: {
+            colorPrimary: '#FF6900',
+            colorBgContainer: '#1A1A1A',
+            colorBgElevated: '#2A2A2A',
+            borderRadius: 12,
+            colorText: '#FFFFFF',
+            colorTextSecondary: '#B3B3B3',
+          },
+        }}
+      >
+        <Layout style={{ minHeight: '100vh', background: '#0D0D0D', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ textAlign: 'center' }}>
+            <svg width="64" height="64" viewBox="0 0 32 32" fill="none" style={{ marginBottom: 24 }}>
+              <rect width="32" height="32" rx="8" fill="url(#g2)" />
+              <path d="M16 8L22 12V20L16 24L10 20V12L16 8Z" fill="white" fillOpacity="0.9" />
+              <defs><linearGradient id="g2" x1="0" y1="0" x2="32" y2="32"><stop stopColor="#FF6900" /><stop offset="1" stopColor="#FF8533" /></linearGradient></defs>
+            </svg>
+            <Title level={3} style={{ color: '#fff', marginBottom: 8 }}>系统已关闭</Title>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>采集系统服务已停止运行，请关闭此页面</Text>
+            <Space>
+              <Button type="primary" onClick={() => window.location.reload()}>重新连接</Button>
+              <Button onClick={() => window.close()}>关闭页面</Button>
+            </Space>
+          </div>
+        </Layout>
+      </ConfigProvider>
     );
   }
 

@@ -392,14 +392,10 @@ class WebSocketServer:
         time.sleep(0.5)
         self.stop()
         import subprocess
+        subprocess.Popen('taskkill /F /FI "IMAGENAME eq cmd.exe" /FI "WINDOWTITLE eq *run_backend*"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen('taskkill /F /FI "IMAGENAME eq cmd.exe" /FI "WINDOWTITLE eq *run_frontend*"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen('taskkill /F /IM python.exe /T', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         import os
-        ppid = os.getppid()
-        subprocess.Popen(
-            f'taskkill /F /T /PID {ppid}',
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
         os._exit(0)
 
 
