@@ -151,13 +151,12 @@ class DataCollector:
 
                 depth_png_filename = f"depth_{capture_id}_{timestamp_str}.png"
                 depth_png_path = self.current_session / "depth" / depth_png_filename
-                depth_vis = frame_data.depth.copy().astype(np.float32)
-                valid_mask = depth_vis > 0
+                depth_mm = frame_data.depth.astype(np.float32) * frame_data.depth_scale
+                valid_mask = depth_mm > 0
                 if np.any(valid_mask):
-                    d_min = np.percentile(depth_vis[valid_mask], 2)
-                    d_max = np.percentile(depth_vis[valid_mask], 98)
-                    depth_vis = np.clip(depth_vis, d_min, d_max)
-                    depth_norm = cv2.normalize(depth_vis, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                    depth_clipped = np.clip(depth_mm, 20, 5000)
+                    depth_clipped = np.where(depth_mm > 20, depth_clipped, 0)
+                    depth_norm = cv2.normalize(depth_clipped, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                     depth_norm[~valid_mask] = 0
                     depth_colored = cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
                     cv2.imwrite(str(depth_png_path), depth_colored, [cv2.IMWRITE_PNG_COMPRESSION, 0])
