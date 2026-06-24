@@ -7,13 +7,12 @@ import StatusBar from './components/StatusBar';
 import './styles/App.css';
 
 const { Header, Content, Footer } = Layout;
-const { Title, Text: AntText } = Typography;
+const { Title } = Typography;
 
 const WS_URL = 'ws://localhost:8765';
 
 function App() {
   const [connected, setConnected] = useState(false);
-  const [shutdown, setShutdown] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [distanceInfo, setDistanceInfo] = useState(null);
   const [captureResult, setCaptureResult] = useState(null);
@@ -28,8 +27,6 @@ function App() {
   const isResizing = useRef(false);
   const containerRef = useRef(null);
   const wsRef = useRef(null);
-  const reconnectTimer = useRef(null);
-  const isExiting = useRef(false);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
@@ -123,10 +120,6 @@ function App() {
             case 'exit_confirm':
               message.info(data.data.message);
               break;
-            case 'shutdown':
-              setShutdown(true);
-              setConnected(false);
-              break;
             case 'capture_image':
               if (data.data.image) {
                 setSelectedImage(`data:image/jpeg;base64,${data.data.image}`);
@@ -143,9 +136,8 @@ function App() {
       ws.onclose = () => {
         setConnected(false);
         setIsCapturing(false);
-        if (isExiting.current) return;
         message.warning('连接已断开，正在重连...');
-        reconnectTimer.current = setTimeout(connectWebSocket, 3000);
+        setTimeout(connectWebSocket, 3000);
       };
 
       ws.onerror = (error) => {
@@ -162,9 +154,6 @@ function App() {
   useEffect(() => {
     connectWebSocket();
     return () => {
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current);
-      }
       if (wsRef.current) {
         wsRef.current.close();
       }
@@ -225,51 +214,14 @@ function App() {
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: () => {
-        isExiting.current = true;
         sendCommand('exit_app');
         message.info('正在关闭系统...');
+        setTimeout(() => {
+          window.close();
+        }, 2000);
       }
     });
   }, [sendCommand]);
-
-  useEffect(() => {
-    if (shutdown) {
-      try { window.close(); } catch (e) {}
-    }
-  }, [shutdown]);
-
-  if (shutdown) {
-    return (
-      <ConfigProvider
-        theme={{
-          algorithm: theme.darkAlgorithm,
-          token: {
-            colorPrimary: '#FF6900',
-            colorBgContainer: '#1A1A1A',
-            colorBgElevated: '#2A2A2A',
-            borderRadius: 12,
-            colorText: '#FFFFFF',
-            colorTextSecondary: '#B3B3B3',
-          },
-        }}
-      >
-        <Layout style={{ minHeight: '100vh', background: '#0D0D0D', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ textAlign: 'center' }}>
-            <svg width="64" height="64" viewBox="0 0 32 32" fill="none" style={{ marginBottom: 24 }}>
-              <rect width="32" height="32" rx="8" fill="url(#g2)" />
-              <path d="M16 8L22 12V20L16 24L10 20V12L16 8Z" fill="white" fillOpacity="0.9" />
-              <defs><linearGradient id="g2" x1="0" y1="0" x2="32" y2="32"><stop stopColor="#FF6900" /><stop offset="1" stopColor="#FF8533" /></linearGradient></defs>
-            </svg>
-            <Title level={3} style={{ color: '#fff', marginBottom: 8 }}>系统已关闭</Title>
-            <AntText type="secondary" style={{ display: 'block', marginBottom: 24 }}>
-              采集系统服务已停止运行，请手动关闭此标签页
-            </AntText>
-            <Button type="primary" onClick={() => window.location.reload()}>重新连接</Button>
-          </div>
-        </Layout>
-      </ConfigProvider>
-    );
-  }
 
   return (
     <ConfigProvider
