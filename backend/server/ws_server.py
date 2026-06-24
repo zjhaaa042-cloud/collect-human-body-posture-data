@@ -170,8 +170,10 @@ class WebSocketServer:
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
-            self.clients.remove(websocket)
+            self.clients.discard(websocket)
             logger.info(f"Client disconnected: {websocket.remote_address}")
+            if len(self.clients) == 0:
+                await self._stop_preview()
 
     async def _process_message(self, websocket, data: dict):
         msg_type = data.get("type")
@@ -248,19 +250,28 @@ class WebSocketServer:
 
     async def _start_preview(self, websocket):
         self.is_previewing = True
-        if self.preview_task is None:
-            self.preview_task = asyncio.create_task(self._preview_loop())
+        if self.preview_task and not self.preview_task.done():
+            self.preview_task.cancel()
+            try:
+                await self.preview_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self.preview_task = asyncio.create_task(self._preview_loop())
 
     async def _stop_preview(self):
         self.is_previewing = False
-        if self.preview_task:
+        if self.preview_task and not self.preview_task.done():
             self.preview_task.cancel()
-            self.preview_task = None
+            try:
+                await self.preview_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self.preview_task = None
 
     async def _preview_loop(self):
         try:
             import time
-            while self.is_previewing:
+            while self.is_previewing and self.clients:
                 start_time = time.time()
                 
                 frames = self.camera.get_frames()
@@ -302,12 +313,19 @@ class WebSocketServer:
             logger.error(f"Preview loop error: {e}")
 
     async def _broadcast(self, message: dict):
-        if self.clients:
-            message_str = json.dumps(message)
-            await asyncio.gather(
-                *[client.send(message_str) for client in self.clients],
-                return_exceptions=True
-            )
+        if not self.clients:
+            return
+        message_str = json.dumps(message)
+        closed = set()
+        for client in list(self.clients):
+            try:
+                await client.send(message_str)
+            except websockets.exceptions.ConnectionClosed:
+                closed.add(client)
+            except Exception:
+                closed.add(client)
+        for client in closed:
+            self.clients.discard(client)
 
     async def start(self):
         try:
