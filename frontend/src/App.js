@@ -29,6 +29,7 @@ function App() {
   const containerRef = useRef(null);
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
+  const isExiting = useRef(false);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
@@ -142,6 +143,7 @@ function App() {
       ws.onclose = () => {
         setConnected(false);
         setIsCapturing(false);
+        if (isExiting.current) return;
         message.warning('连接已断开，正在重连...');
         reconnectTimer.current = setTimeout(connectWebSocket, 3000);
       };
@@ -223,6 +225,7 @@ function App() {
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: () => {
+        isExiting.current = true;
         sendCommand('exit_app');
         message.info('正在关闭系统...');
       }
