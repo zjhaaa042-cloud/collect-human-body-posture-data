@@ -8,7 +8,7 @@
   },
   "voice": {
     "enabled": true,
-    "model_path": "models/vosk-model-cn",
+    "model_path": "models/vosk-model-small-cn-0.22",
     "language": "zh",
     "tts_voice": "zh-CN-XiaoxiaoNeural",
     "tts_rate": "+0%",
@@ -31,10 +31,10 @@
     "roi_ratio": 0.3
   },
   "gui": {
-    "preview_fps": 15,
+    "preview_fps": 20,
     "preview_width": 320,
     "preview_height": 240,
-    "jpeg_quality": 70
+    "jpeg_quality": 50
   },
   "websocket_host": "localhost",
   "websocket_port": 8765,

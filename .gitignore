@@ -8,19 +8,30 @@ venv/
 # Node.js
 node_modules/
 
+# Build
+frontend/build/
+
 # Data
 data/sessions/
 models/vosk-model-small-cn-0.22/
 
 # Temp
 temp/
+temp_speech.mp3
 
 # Logs
 *.log
+*.log.txt
+Log/
+logs/
 
 # Config
 config.json
 .env
+
+# IDE
+.vscode/
+.idea/
 
 # OS
 .DS_Store

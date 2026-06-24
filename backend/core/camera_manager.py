@@ -249,40 +249,19 @@ class CameraManager:
             if not frame_data or frame_data.depth is None:
                 return None
 
-            if HAS_ORBBEC and self.pipeline:
-                frames = self.pipeline.wait_for_frames(1000)
-                if not frames:
-                    return None
-
-                aligned_frames = self.align_filter.process(frames)
-                point_cloud_frame = self.point_cloud_filter.process(aligned_frames)
-
-                if point_cloud_frame:
-                    data = np.frombuffer(point_cloud_frame.get_data(), dtype=np.float32)
-                    n = data.size // 6
-                    points_data = data.reshape(n, 6)
-                    xyz = points_data[:, 0:3]
-                    rgb = points_data[:, 3:6] / 255.0
-
-                    valid_mask = ~np.all(xyz == 0, axis=1)
-                    valid_indices = np.where(valid_mask)[0]
-                    xyz = xyz[valid_mask]
-                    rgb = rgb[valid_mask] if colored else None
-
-                    return PointCloudData(
-                        points=xyz,
-                        colors=(rgb * 255).astype(np.uint8) if rgb is not None else None,
-                        point_count=len(xyz),
-                        pixel_indices=valid_indices
-                    )
-
             height, width = frame_data.depth.shape
             depth_scale = frame_data.depth_scale
 
+            intrinsics = self.get_camera_intrinsics()
+            fx = intrinsics.fx if intrinsics else width / 2
+            fy = intrinsics.fy if intrinsics else width / 2
+            cx = intrinsics.cx if intrinsics else width / 2
+            cy = intrinsics.cy if intrinsics else height / 2
+
             v, u = np.mgrid[0:height, 0:width]
             z = frame_data.depth.astype(np.float32) * depth_scale
-            x = (u - width / 2) * z / 500
-            y = (v - height / 2) * z / 500
+            x = (u - cx) * z / fx
+            y = (v - cy) * z / fy
 
             points = np.stack([x, y, z], axis=-1).reshape(-1, 3)
             valid_mask = z.reshape(-1) > 0

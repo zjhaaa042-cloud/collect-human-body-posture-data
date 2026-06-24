@@ -64,7 +64,7 @@ class DepthAnalyzer:
 
         except Exception as e:
             logger.warning(f"Human detection failed: {e}")
-            return True, None
+            return False, None
 
     def analyze_distance(self, depth_frame: np.ndarray, color_frame: np.ndarray = None, depth_scale: float = 1.0) -> DistanceInfo:
         try:
@@ -102,7 +102,7 @@ class DepthAnalyzer:
             avg_dist = np.mean(self.history)
 
             if avg_dist < self.target - self.tolerance:
-                confidence = min(0.9, 1.0 - abs(avg_dist - (self.target - self.tolerance)) / self.tolerance)
+                confidence = max(0.0, min(0.9, 1.0 - abs(avg_dist - (self.target - self.tolerance)) / self.tolerance))
                 return DistanceInfo(
                     avg_dist,
                     DistanceStatus.TOO_CLOSE,
@@ -110,7 +110,7 @@ class DepthAnalyzer:
                     f"太近了，请后退（{avg_dist / 1000:.1f}米）"
                 )
             elif avg_dist > self.target + self.tolerance:
-                confidence = min(0.9, 1.0 - abs(avg_dist - (self.target + self.tolerance)) / self.tolerance)
+                confidence = max(0.0, min(0.9, 1.0 - abs(avg_dist - (self.target + self.tolerance)) / self.tolerance))
                 return DistanceInfo(
                     avg_dist,
                     DistanceStatus.TOO_FAR,

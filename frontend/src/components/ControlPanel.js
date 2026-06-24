@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import { Card, Button, Checkbox, Space, Typography, Tag, List, Input, Select, message } from 'antd';
+import { Card, Button, Checkbox, Space, Typography, Tag, List, Input, Select } from 'antd';
 import {
   CameraOutlined,
   AudioOutlined,
   AudioMutedOutlined,
   FolderOutlined,
   HistoryOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
   ReloadOutlined
 } from '@ant-design/icons';
 import './ControlPanel.css';
@@ -38,14 +36,9 @@ const ControlPanel = ({
   const handleCreateSession = () => {
     const name = sessionName.trim() || undefined;
     onCreateSession(name);
-    message.success('会话已创建');
   };
 
   const handleCapture = () => {
-    if (!sessionId) {
-      message.warning('请先创建或选择采集会话');
-      return;
-    }
     onCapture();
   };
 

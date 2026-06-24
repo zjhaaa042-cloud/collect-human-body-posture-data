@@ -79,6 +79,8 @@ class VoiceRecognizer:
 
     def stop_listening(self):
         self.is_listening = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=2)
         if self.stream:
             self.stream.stop_stream()
             self.stream.close()
@@ -119,7 +121,7 @@ class VoiceRecognizer:
                         import json
                         try:
                             result = json.loads(result)
-                        except:
+                        except Exception:
                             result = {}
                     text = result.get('text', '') if isinstance(result, dict) else ''
                     if text:

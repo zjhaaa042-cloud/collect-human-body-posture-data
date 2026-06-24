@@ -76,7 +76,7 @@ class VoiceSynthesizer:
             if output_file and os.path.exists(output_file):
                 try:
                     os.remove(output_file)
-                except:
+                except Exception:
                     pass
 
     def stop(self):

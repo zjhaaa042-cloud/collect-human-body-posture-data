@@ -100,11 +100,16 @@ class DataCollector:
 
     def capture(self, frame_data, point_cloud=None, config: Optional[CaptureConfig] = None, camera_intrinsics=None) -> CaptureResult:
         try:
-            if self.current_session is None:
+            if self.current_session is None or not self.current_session.exists():
                 raise ValueError("No active session. Call create_session first.")
 
             if config is None:
                 config = CaptureConfig()
+
+            import shutil
+            total, used, free = shutil.disk_usage(self.current_session)
+            if free < 100 * 1024 * 1024:
+                raise OSError("磁盘空间不足（剩余 < 100MB）")
 
             if config.quality_check:
                 is_ok, issues = self._check_image_quality(frame_data.color, frame_data.depth, config)
@@ -118,8 +123,8 @@ class DataCollector:
                         error=f"质量检查失败: {', '.join(issues)}"
                     )
 
-            self.capture_count += 1
-            capture_id = f"cap_{self.capture_count:03d}"
+            next_count = self.capture_count + 1
+            capture_id = f"cap_{next_count:03d}"
             timestamp = int(datetime.now().timestamp() * 1000)
             timestamp_str = str(timestamp)
 
@@ -132,13 +137,16 @@ class DataCollector:
             if config.save_rgb and frame_data.color is not None:
                 rgb_filename = f"rgb_{capture_id}_{timestamp_str}.png"
                 rgb_path = self.current_session / "rgb" / rgb_filename
-                cv2.imwrite(str(rgb_path), cv2.cvtColor(frame_data.color, cv2.COLOR_RGB2BGR),
+                tmp_path = rgb_path.with_suffix('.tmp')
+                cv2.imwrite(str(tmp_path), cv2.cvtColor(frame_data.color, cv2.COLOR_RGB2BGR),
                            [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                tmp_path.rename(rgb_path)
                 result.rgb_path = f"rgb/{rgb_filename}"
 
             if config.save_depth and frame_data.depth is not None:
                 depth_filename = f"depth_{capture_id}_{timestamp_str}.npz"
                 depth_path = self.current_session / "depth" / depth_filename
+                tmp_path = depth_path.with_suffix('.tmp')
                 save_dict = {
                     "depth": frame_data.depth,
                     "depth_scale": frame_data.depth_scale,
@@ -146,11 +154,13 @@ class DataCollector:
                 }
                 if point_cloud is not None and point_cloud.pixel_indices is not None:
                     save_dict["pixel_indices"] = point_cloud.pixel_indices
-                np.savez_compressed(str(depth_path), **save_dict)
+                np.savez_compressed(str(tmp_path), **save_dict)
+                tmp_path.rename(depth_path)
                 result.depth_path = f"depth/{depth_filename}"
 
                 depth_png_filename = f"depth_{capture_id}_{timestamp_str}.png"
                 depth_png_path = self.current_session / "depth" / depth_png_filename
+                tmp_png = depth_png_path.with_suffix('.tmp')
                 depth_mm = frame_data.depth.astype(np.float32) * frame_data.depth_scale
                 valid_mask = depth_mm > 0
                 if np.any(valid_mask):
@@ -159,14 +169,17 @@ class DataCollector:
                     depth_norm = cv2.normalize(depth_clipped, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                     depth_norm[~valid_mask] = 0
                     depth_colored = cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
-                    cv2.imwrite(str(depth_png_path), depth_colored, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                    cv2.imwrite(str(tmp_png), depth_colored, [cv2.IMWRITE_PNG_COMPRESSION, 0])
                 else:
-                    cv2.imwrite(str(depth_png_path), frame_data.depth, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                    cv2.imwrite(str(tmp_png), frame_data.depth, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                tmp_png.rename(depth_png_path)
 
             if config.save_pointcloud and point_cloud is not None:
                 pc_filename = f"pc_{capture_id}_{timestamp_str}.ply"
                 pc_path = self.current_session / "pointcloud" / pc_filename
-                self._save_ply(point_cloud.points, point_cloud.colors, str(pc_path))
+                tmp_path = pc_path.with_suffix('.tmp')
+                self._save_ply(point_cloud.points, point_cloud.colors, str(tmp_path))
+                tmp_path.rename(pc_path)
                 result.pointcloud_path = f"pointcloud/{pc_filename}"
 
             if camera_intrinsics is not None:
@@ -179,6 +192,7 @@ class DataCollector:
                     "height": camera_intrinsics.height
                 }
 
+            self.capture_count = next_count
             self.session_metadata["statistics"]["total_captures"] += 1
             self.session_metadata["statistics"]["successful_captures"] += 1
             self.session_metadata["captures"].append(asdict(result))
@@ -194,7 +208,7 @@ class DataCollector:
                 self._save_metadata()
             return CaptureResult(
                 session_id=self.session_id or "",
-                capture_id=f"cap_{self.capture_count:03d}",
+                capture_id=f"cap_{self.capture_count + 1:03d}",
                 timestamp=datetime.now().isoformat(),
                 success=False,
                 error=str(e)
@@ -273,7 +287,7 @@ class DataCollector:
                 with open(metadata_path, 'r', encoding='utf-8') as f:
                     self.session_metadata = json.load(f)
                 # Get existing capture count
-                self.capture_count = self.session_metadata.get("statistics", {}).get("total_captures", 0)
+                self.capture_count = self.session_metadata.get("statistics", {}).get("successful_captures", 0)
             else:
                 # Create new metadata for existing session
                 self.capture_count = 0

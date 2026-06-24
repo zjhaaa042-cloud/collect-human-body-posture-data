@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ConfigProvider, theme, Layout, Typography, Space, Button, message, Modal, Image } from 'antd';
+import { ConfigProvider, theme, Layout, Typography, Space, Button, message, Modal } from 'antd';
 import { SettingOutlined, QuestionCircleOutlined, PoweroffOutlined } from '@ant-design/icons';
 import PreviewPanel from './components/PreviewPanel';
 import ControlPanel from './components/ControlPanel';
@@ -27,6 +27,7 @@ function App() {
   const isResizing = useRef(false);
   const containerRef = useRef(null);
   const wsRef = useRef(null);
+  const reconnectTimer = useRef(null);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
@@ -62,9 +63,11 @@ function App() {
 
       ws.onopen = () => {
         setConnected(true);
+        setIsCapturing(false);
         message.success('已连接到采集系统');
         ws.send(JSON.stringify({ type: 'start_preview' }));
         ws.send(JSON.stringify({ type: 'get_sessions' }));
+        ws.send(JSON.stringify({ type: 'get_captures' }));
       };
 
       ws.onmessage = (event) => {
@@ -102,7 +105,6 @@ function App() {
               break;
             case 'session_created':
               setSessionId(data.data.session_id);
-              message.success('会话已创建');
               ws.send(JSON.stringify({ type: 'get_sessions' }));
               ws.send(JSON.stringify({ type: 'get_captures' }));
               break;
@@ -134,13 +136,13 @@ function App() {
 
       ws.onclose = () => {
         setConnected(false);
+        setIsCapturing(false);
         message.warning('连接已断开，正在重连...');
-        setTimeout(connectWebSocket, 3000);
+        reconnectTimer.current = setTimeout(connectWebSocket, 3000);
       };
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        message.error('连接错误');
       };
 
       wsRef.current = ws;
@@ -153,6 +155,9 @@ function App() {
   useEffect(() => {
     connectWebSocket();
     return () => {
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
+      }
       if (wsRef.current) {
         wsRef.current.close();
       }
@@ -160,22 +165,36 @@ function App() {
   }, [connectWebSocket]);
 
   const sendCommand = useCallback((type, data = {}) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type, ...data }));
+    try {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type, ...data }));
+      } else {
+        message.warning('未连接到服务器');
+      }
+    } catch (e) {
+      message.error('发送命令失败');
     }
   }, []);
 
   const handleCapture = useCallback(() => {
+    if (!connected) {
+      message.warning('未连接到服务器');
+      return;
+    }
+    if (!sessionId) {
+      message.warning('请先创建或选择采集会话');
+      return;
+    }
     setIsCapturing(true);
     sendCommand('capture_single');
-  }, [sendCommand]);
+  }, [sendCommand, connected, sessionId]);
 
   const handleCreateSession = useCallback((sessionName) => {
     sendCommand('create_session', { session_name: sessionName });
   }, [sendCommand]);
 
-  const handleSelectSession = useCallback((sessionId) => {
-    sendCommand('select_session', { session_name: sessionId });
+  const handleSelectSession = useCallback((name) => {
+    sendCommand('select_session', { session_name: name });
   }, [sendCommand]);
 
   const handleFinishSession = useCallback(() => {
@@ -201,9 +220,6 @@ function App() {
       onOk: () => {
         sendCommand('exit_app');
         message.info('正在关闭系统...');
-        setTimeout(() => {
-          window.close();
-        }, 2000);
       }
     });
   }, [sendCommand]);
@@ -227,7 +243,7 @@ function App() {
           <div className="header-left">
             <div className="logo">
               <div className="logo-icon">
-                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" role="img" aria-label="Logo">
                   <rect width="32" height="32" rx="8" fill="url(#gradient)" />
                   <path d="M16 8L22 12V20L16 24L10 20V12L16 8Z" fill="white" fillOpacity="0.9" />
                   <defs>
@@ -266,7 +282,7 @@ function App() {
               />
             </div>
 
-            <div className="panel-splitter" onMouseDown={handleResizeStart} />
+            <div className="panel-splitter" onMouseDown={handleResizeStart} role="separator" aria-orientation="vertical" />
             
             <div className="panel-right" style={{ width: `${100 - leftPanelWidth}%` }}>
               <ControlPanel

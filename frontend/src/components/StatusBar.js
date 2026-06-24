@@ -1,14 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Space, Tag, Typography } from 'antd';
 import {
-  CameraOutlined,
   AudioOutlined,
-  AudioMutedOutlined,
   SaveOutlined,
   FolderOutlined,
   CheckCircleOutlined,
-  CloseCircleOutlined,
-  LoadingOutlined
+  CloseCircleOutlined
 } from '@ant-design/icons';
 import './StatusBar.css';
 
@@ -65,14 +62,13 @@ const StatusBar = ({ connected, captureCount, sessionId, voiceActive }) => {
       <div className="status-left">
         <Space size="middle">
           <div className="status-item">
-            <CameraOutlined />
             {connected ? (
               <Tag icon={<CheckCircleOutlined />} color="success" bordered={false}>
-                相机已连接
+                服务已连接
               </Tag>
             ) : (
               <Tag icon={<CloseCircleOutlined />} color="error" bordered={false}>
-                相机未连接
+                服务未连接
               </Tag>
             )}
           </div>

@@ -221,12 +221,19 @@ class WebSocketServer:
                 "data": {"captures": captures, "count": len(captures)}
             }))
         elif msg_type == "get_capture_image":
-            filename = data.get("filename")
-            image_b64 = self.data_collector.get_capture_image(filename)
-            await websocket.send(json.dumps({
-                "type": "capture_image",
-                "data": {"filename": filename, "image": image_b64}
-            }))
+            filename = data.get("filename", "")
+            import re
+            if not re.match(r'^[\w\-]+$', filename):
+                await websocket.send(json.dumps({
+                    "type": "capture_image",
+                    "data": {"filename": filename, "image": ""}
+                }))
+            else:
+                image_b64 = self.data_collector.get_capture_image(filename)
+                await websocket.send(json.dumps({
+                    "type": "capture_image",
+                    "data": {"filename": filename, "image": image_b64}
+                }))
         elif msg_type == "select_session":
             session_name = data.get("session_name")
             if session_name and self.data_collector.select_session(session_name):
@@ -373,8 +380,8 @@ class WebSocketServer:
     def _shutdown(self):
         logger.info("Shutting down application...")
         self.stop()
-        import os
-        os._exit(0)
+        import sys
+        sys.exit(0)
 
 
 async def main():
