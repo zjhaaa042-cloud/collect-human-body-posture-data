@@ -137,16 +137,13 @@ class DataCollector:
             if config.save_rgb and frame_data.color is not None:
                 rgb_filename = f"rgb_{capture_id}_{timestamp_str}.png"
                 rgb_path = self.current_session / "rgb" / rgb_filename
-                tmp_path = rgb_path.with_suffix('.tmp')
-                cv2.imwrite(str(tmp_path), cv2.cvtColor(frame_data.color, cv2.COLOR_RGB2BGR),
+                cv2.imwrite(str(rgb_path), cv2.cvtColor(frame_data.color, cv2.COLOR_RGB2BGR),
                            [cv2.IMWRITE_PNG_COMPRESSION, 0])
-                tmp_path.rename(rgb_path)
                 result.rgb_path = f"rgb/{rgb_filename}"
 
             if config.save_depth and frame_data.depth is not None:
                 depth_filename = f"depth_{capture_id}_{timestamp_str}.npz"
                 depth_path = self.current_session / "depth" / depth_filename
-                tmp_path = depth_path.with_suffix('.tmp')
                 save_dict = {
                     "depth": frame_data.depth,
                     "depth_scale": frame_data.depth_scale,
@@ -154,13 +151,11 @@ class DataCollector:
                 }
                 if point_cloud is not None and point_cloud.pixel_indices is not None:
                     save_dict["pixel_indices"] = point_cloud.pixel_indices
-                np.savez_compressed(str(tmp_path), **save_dict)
-                tmp_path.rename(depth_path)
+                np.savez_compressed(str(depth_path), **save_dict)
                 result.depth_path = f"depth/{depth_filename}"
 
                 depth_png_filename = f"depth_{capture_id}_{timestamp_str}.png"
                 depth_png_path = self.current_session / "depth" / depth_png_filename
-                tmp_png = depth_png_path.with_suffix('.tmp')
                 depth_mm = frame_data.depth.astype(np.float32) * frame_data.depth_scale
                 valid_mask = depth_mm > 0
                 if np.any(valid_mask):
@@ -169,17 +164,14 @@ class DataCollector:
                     depth_norm = cv2.normalize(depth_clipped, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                     depth_norm[~valid_mask] = 0
                     depth_colored = cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
-                    cv2.imwrite(str(tmp_png), depth_colored, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                    cv2.imwrite(str(depth_png_path), depth_colored, [cv2.IMWRITE_PNG_COMPRESSION, 0])
                 else:
-                    cv2.imwrite(str(tmp_png), frame_data.depth, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-                tmp_png.rename(depth_png_path)
+                    cv2.imwrite(str(depth_png_path), frame_data.depth, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
             if config.save_pointcloud and point_cloud is not None:
                 pc_filename = f"pc_{capture_id}_{timestamp_str}.ply"
                 pc_path = self.current_session / "pointcloud" / pc_filename
-                tmp_path = pc_path.with_suffix('.tmp')
-                self._save_ply(point_cloud.points, point_cloud.colors, str(tmp_path))
-                tmp_path.rename(pc_path)
+                self._save_ply(point_cloud.points, point_cloud.colors, str(pc_path))
                 result.pointcloud_path = f"pointcloud/{pc_filename}"
 
             if camera_intrinsics is not None:
