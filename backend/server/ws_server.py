@@ -421,6 +421,23 @@ class WebSocketServer:
         logger.info("Shutting down application...")
         self.is_shutting_down = True
         self.stop()
+        import subprocess, os
+        try:
+            subprocess.Popen(
+                ["taskkill", "/F", "/T", "/IM", "node.exe"],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        except Exception:
+            pass
+        try:
+            ppid = os.getppid()
+            subprocess.Popen(
+                ["taskkill", "/F", "/T", "/PID", str(ppid)],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        except Exception:
+            pass
+        os._exit(0)
 
 
 async def main():
