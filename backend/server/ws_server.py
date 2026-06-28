@@ -1,6 +1,10 @@
 import asyncio
 import json
+import re
+import secrets
 import websockets
+from websockets.http11 import Response
+from websockets.datastructures import Headers
 from typing import Set, Callable, Any
 from loguru import logger
 
@@ -13,12 +17,42 @@ from ..voice.command_parser import VoiceCommandParser, VoiceCommand
 from ..utils.frame_processor import FrameProcessor
 from ..config.settings import get_settings
 
+_ERROR_MESSAGES = {
+    json.JSONDecodeError: "请求格式无效",
+    KeyError: "缺少必要参数",
+    ValueError: "参数值无效",
+    PermissionError: "权限不足",
+    FileNotFoundError: "资源未找到",
+}
+
+_MAX_LENGTHS = {
+    "session_name": 100,
+    "text": 500,
+    "filename": 50,
+}
+
+_SAFE_PATTERN = re.compile(r'^[\w\-\u4e00-\u9fff\s]+$')
+_FILENAME_PATTERN = re.compile(r'^[\w\-\.]+$')
+
+
+def _validate_field(value: str, field_name: str, pattern=None) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    value = value.strip()
+    max_len = _MAX_LENGTHS.get(field_name, 200)
+    if len(value) > max_len:
+        raise ValueError(f"{field_name} exceeds max length {max_len}")
+    if pattern and not pattern.match(value):
+        raise ValueError(f"{field_name} contains invalid characters")
+    return value
+
 
 class WebSocketServer:
     def __init__(self, host: str = "localhost", port: int = 8765):
         self.host = host
         self.port = port
         self.clients: Set[websockets.WebSocketServerProtocol] = set()
+        self.auth_token = secrets.token_urlsafe(32)
 
         self.settings = get_settings()
         self.camera = CameraManager()
@@ -65,22 +99,31 @@ class WebSocketServer:
 
     def _on_voice_activity(self, is_active: bool):
         """Broadcast voice activity status to all clients"""
-        if self.loop:
-            asyncio.run_coroutine_threadsafe(
-                self._broadcast_voice_activity(is_active),
-                self.loop
-            )
+        if self.loop and not self.loop.is_closed():
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast_voice_activity(is_active),
+                    self.loop
+                )
+            except Exception:
+                pass
 
     def _on_voice_command(self, text: str):
         command = self.voice_parser.execute_command(text)
         if command == VoiceCommand.START_CAPTURE:
-            if self.loop:
-                asyncio.run_coroutine_threadsafe(self._handle_capture(), self.loop)
+            if self.loop and not self.loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(self._handle_capture(), self.loop)
+                except Exception:
+                    pass
         elif command == VoiceCommand.STOP_CAPTURE:
             self.is_capturing = False
         elif command == VoiceCommand.FINISH:
-            if self.loop:
-                asyncio.run_coroutine_threadsafe(self._handle_finish(), self.loop)
+            if self.loop and not self.loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(self._handle_finish(), self.loop)
+                except Exception:
+                    pass
 
     def _build_capture_config(self, options: dict = None) -> CaptureConfig:
         options = options or {}
@@ -97,7 +140,10 @@ class WebSocketServer:
         )
 
     async def _send_error(self, websocket, message: str):
-        await websocket.send(json.dumps({"type": "error", "message": message}, ensure_ascii=False))
+        try:
+            await websocket.send(json.dumps({"type": "error", "message": message}, ensure_ascii=False))
+        except Exception:
+            pass
 
     async def _handle_capture(self, options: dict = None):
         if self.capture_lock.locked():
@@ -188,9 +234,41 @@ class WebSocketServer:
             "data": {"active": is_active}
         })
 
+    async def _process_http_request(self, connection, request):
+        if request.path == "/auth-token":
+            body = json.dumps({"token": self.auth_token}).encode("utf-8")
+            headers = Headers([("Content-Type", "application/json"), ("Access-Control-Allow-Origin", "*")])
+            return Response(200, "OK", headers, body)
+        return None
+
     async def _handle_client(self, websocket):
+        try:
+            remote = websocket.remote_address
+        except Exception:
+            remote = "unknown"
+
+        try:
+            auth_msg = await asyncio.wait_for(websocket.recv(), timeout=5.0)
+            data = json.loads(auth_msg)
+            if data.get("type") != "auth" or data.get("token") != self.auth_token:
+                await websocket.close(4001, "Authentication failed")
+                logger.warning(f"Authentication failed from {remote}")
+                return
+        except (
+            asyncio.TimeoutError,
+            json.JSONDecodeError,
+            websockets.exceptions.ConnectionClosedOK,
+            websockets.exceptions.ConnectionClosedError,
+        ):
+            try:
+                await websocket.close(4001, "Authentication timeout")
+            except Exception:
+                pass
+            logger.warning(f"Authentication timeout from {remote}")
+            return
+
         self.clients.add(websocket)
-        logger.info(f"Client connected: {websocket.remote_address}")
+        logger.info(f"Client connected: {remote}")
 
         try:
             async for message in websocket:
@@ -198,17 +276,26 @@ class WebSocketServer:
                     data = json.loads(message)
                     await self._process_message(websocket, data)
                 except json.JSONDecodeError:
-                    await self._send_error(websocket, "Invalid JSON")
+                    await self._send_error(websocket, "请求格式无效")
                 except Exception as e:
                     logger.error(f"Failed to process message: {e}")
-                    await self._send_error(websocket, str(e))
+                    safe_msg = _ERROR_MESSAGES.get(type(e), "服务器内部错误，请稍后重试")
+                    try:
+                        await self._send_error(websocket, safe_msg)
+                    except Exception:
+                        pass
         except websockets.exceptions.ConnectionClosed:
             pass
+        except Exception as e:
+            logger.debug(f"Client connection error: {e}")
         finally:
             self.clients.discard(websocket)
-            logger.info(f"Client disconnected: {websocket.remote_address}")
+            logger.info(f"Client disconnected: {remote}")
             if len(self.clients) == 0:
-                await self._stop_preview()
+                try:
+                    await self._stop_preview()
+                except Exception:
+                    pass
 
     async def _process_message(self, websocket, data: dict):
         msg_type = data.get("type")
@@ -220,64 +307,75 @@ class WebSocketServer:
         elif msg_type == "capture_single":
             await self._handle_capture(data.get("options"))
         elif msg_type == "create_session":
-            session_name = data.get("session_name")
+            session_name = _validate_field(data.get("session_name", ""), "session_name", _SAFE_PATTERN)
             session_id = self.data_collector.create_session(session_name)
-            await websocket.send(json.dumps({
-                "type": "session_created",
-                "data": {"session_id": session_id}
-            }, ensure_ascii=False))
+            try:
+                await websocket.send(json.dumps({
+                    "type": "session_created",
+                    "data": {"session_id": session_id}
+                }, ensure_ascii=False))
+            except Exception:
+                pass
         elif msg_type == "get_distance":
             distance = self.camera.get_center_distance()
             depth_frame = self.camera.get_frames()
             if depth_frame and depth_frame.depth is not None:
                 distance_info = self.depth_analyzer.analyze_distance(depth_frame.depth)
-                await websocket.send(json.dumps({
-                    "type": "distance_update",
-                    "data": {
-                        "distance_mm": distance_info.distance_mm,
-                        "status": distance_info.status.value,
-                        "message": distance_info.message
-                    }
-                }))
+                try:
+                    await websocket.send(json.dumps({
+                        "type": "distance_update",
+                        "data": {
+                            "distance_mm": distance_info.distance_mm,
+                            "status": distance_info.status.value,
+                            "message": distance_info.message
+                        }
+                    }))
+                except Exception:
+                    pass
         elif msg_type == "speak":
-            text = data.get("text", "")
+            text = _validate_field(data.get("text", ""), "text")
             if self.voice_synthesizer:
                 self.voice_synthesizer.speak(text, blocking=False)
         elif msg_type == "finish_session":
             await self._handle_finish()
         elif msg_type == "get_sessions":
             sessions = self.data_collector.get_session_list()
-            await websocket.send(json.dumps({
-                "type": "session_list",
-                "data": {"sessions": sessions}
-            }, ensure_ascii=False))
+            try:
+                await websocket.send(json.dumps({
+                    "type": "session_list",
+                    "data": {"sessions": sessions}
+                }, ensure_ascii=False))
+            except Exception:
+                pass
         elif msg_type == "get_captures":
             captures = self.data_collector.get_captures()
-            await websocket.send(json.dumps({
-                "type": "capture_list",
-                "data": {"captures": captures, "count": len(captures)}
-            }, ensure_ascii=False))
-        elif msg_type == "get_capture_image":
-            filename = data.get("filename", "")
-            import re
-            if not re.match(r'^[\w\-]+$', filename):
+            try:
                 await websocket.send(json.dumps({
-                    "type": "capture_image",
-                    "data": {"filename": filename, "image": ""}
+                    "type": "capture_list",
+                    "data": {"captures": captures, "count": len(captures)}
                 }, ensure_ascii=False))
-            else:
-                image_b64 = self.data_collector.get_capture_image(filename)
+            except Exception:
+                pass
+        elif msg_type == "get_capture_image":
+            filename = _validate_field(data.get("filename", ""), "filename", _FILENAME_PATTERN)
+            image_b64 = self.data_collector.get_capture_image(filename)
+            try:
                 await websocket.send(json.dumps({
                     "type": "capture_image",
                     "data": {"filename": filename, "image": image_b64}
                 }, ensure_ascii=False))
+            except Exception:
+                pass
         elif msg_type == "select_session":
             session_name = data.get("session_name")
             if session_name and self.data_collector.select_session(session_name):
-                await websocket.send(json.dumps({
-                    "type": "session_created",
-                    "data": {"session_id": session_name}
-                }, ensure_ascii=False))
+                try:
+                    await websocket.send(json.dumps({
+                        "type": "session_created",
+                        "data": {"session_id": session_name}
+                    }, ensure_ascii=False))
+                except Exception:
+                    pass
             else:
                 await self._send_error(websocket, f"Session not found: {session_name}")
         elif msg_type == "exit_app":
@@ -361,22 +459,28 @@ class WebSocketServer:
     async def _broadcast(self, message: dict):
         if not self.clients:
             return
-        message_str = json.dumps(message, ensure_ascii=False)
-        closed = set()
-        for client in list(self.clients):
-            try:
-                await client.send(message_str)
-            except websockets.exceptions.ConnectionClosed:
-                closed.add(client)
-            except Exception:
-                closed.add(client)
-        for client in closed:
-            self.clients.discard(client)
+        try:
+            message_str = json.dumps(message, ensure_ascii=False)
+            closed = set()
+            for client in list(self.clients):
+                try:
+                    await client.send(message_str)
+                except Exception:
+                    closed.add(client)
+            for client in closed:
+                self.clients.discard(client)
+        except Exception:
+            pass
 
     async def start(self):
         try:
             self.loop = asyncio.get_event_loop()
-            
+
+            import os
+            token_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".ws_token")
+            with open(token_file, 'w') as f:
+                f.write(self.auth_token)
+
             camera_ok = self.camera.initialize(
                 width=self.settings.camera.width,
                 height=self.settings.camera.height,
@@ -391,7 +495,10 @@ class WebSocketServer:
             else:
                 logger.warning("Failed to initialize camera, using mock mode")
 
-            self._ws_server = await websockets.serve(self._handle_client, self.host, self.port)
+            self._ws_server = await websockets.serve(
+                self._handle_client, self.host, self.port,
+                process_request=self._process_http_request
+            )
             logger.info(f"WebSocket server started on ws://{self.host}:{self.port}")
 
             if camera_ok:
@@ -409,34 +516,60 @@ class WebSocketServer:
 
     def stop(self):
         self.is_previewing = False
-        if hasattr(self, '_ws_server') and self._ws_server:
-            self._ws_server.close()
-        if self.camera:
-            self.camera.release()
+        self.is_capturing = False
         if self.voice_recognizer:
-            self.voice_recognizer.release()
+            try:
+                self.voice_recognizer.release()
+            except Exception:
+                pass
+            self.voice_recognizer = None
+        if hasattr(self, '_ws_server') and self._ws_server:
+            try:
+                self._ws_server.close()
+            except Exception:
+                pass
+        if self.camera:
+            try:
+                self.camera.release()
+            except Exception:
+                pass
+        self.loop = None
         logger.info("Server stopped")
+
+    def get_auth_info(self) -> dict:
+        return {"token": self.auth_token, "host": self.host, "port": self.port}
+
+    @staticmethod
+    def _kill_process_on_port(port: int):
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.splitlines():
+                if f":{port}" in line and "LISTENING" in line:
+                    parts = line.split()
+                    pid = parts[-1]
+                    if pid.isdigit():
+                        subprocess.run(["taskkill", "/F", "/PID", pid],
+                                       capture_output=True, timeout=5)
+                        logger.info(f"Killed process {pid} on port {port}")
+        except Exception as e:
+            logger.debug(f"Failed to kill process on port {port}: {e}")
 
     def _shutdown(self):
         logger.info("Shutting down application...")
         self.is_shutting_down = True
-        self.stop()
-        import subprocess, os
+        self.is_previewing = False
+        self.is_capturing = False
         try:
-            subprocess.Popen(
-                ["taskkill", "/F", "/T", "/IM", "node.exe"],
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
+            self.stop()
         except Exception:
             pass
-        try:
-            ppid = os.getppid()
-            subprocess.Popen(
-                ["taskkill", "/F", "/T", "/PID", str(ppid)],
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-        except Exception:
-            pass
+
+        self._kill_process_on_port(3000)
+
+        import os
         os._exit(0)
 
 

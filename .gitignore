@@ -28,6 +28,7 @@ logs/
 # Config
 config.json
 .env
+.ws_token
 
 # IDE
 .vscode/

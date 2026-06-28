@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 
 let mainWindow;
 let reactProcess = null;
@@ -8,9 +8,11 @@ let reactProcess = null;
 function startReactServer() {
   return new Promise((resolve, reject) => {
     const frontendPath = __dirname;
-    reactProcess = exec('npm start', {
+    const isWin = process.platform === 'win32';
+    reactProcess = spawn(isWin ? 'npm.cmd' : 'npm', ['start'], {
       cwd: frontendPath,
-      env: { ...process.env, PORT: '3000', BROWSER: 'none' }
+      env: { ...process.env, PORT: '3000', BROWSER: 'none' },
+      shell: false
     });
 
     reactProcess.stdout.on('data', (data) => {
@@ -43,9 +45,11 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      enableRemoteModule: true
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js'),
+      sandbox: true
     },
     title: '体态数据采集系统',
     backgroundColor: '#0D0D0D',
@@ -142,4 +146,10 @@ ipcMain.handle('get-app-version', () => {
 
 ipcMain.handle('get-app-path', () => {
   return app.getAppPath();
+});
+
+ipcMain.handle('close-window', () => {
+  if (mainWindow) {
+    mainWindow.close();
+  }
 });

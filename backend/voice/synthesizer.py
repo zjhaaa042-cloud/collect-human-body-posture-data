@@ -1,4 +1,6 @@
 import asyncio
+import atexit
+import glob as glob_mod
 import os
 import tempfile
 import threading
@@ -24,6 +26,8 @@ class VoiceSynthesizer:
         # Use project directory for temp files to avoid permission issues
         self.temp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "temp", "tts")
         os.makedirs(self.temp_dir, exist_ok=True)
+        self._cleanup_stale_files()
+        atexit.register(self._cleanup_all_temp)
 
         if HAS_TTS:
             try:
@@ -92,3 +96,19 @@ class VoiceSynthesizer:
 
     def set_volume(self, volume: str):
         self.volume = volume
+
+    def _cleanup_stale_files(self):
+        """清理启动前残留的临时文件"""
+        try:
+            pattern = os.path.join(self.temp_dir, "tts_*.mp3")
+            for f in glob_mod.glob(pattern):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+        except Exception:
+            pass
+
+    def _cleanup_all_temp(self):
+        """进程退出时清理所有临时文件"""
+        self._cleanup_stale_files()

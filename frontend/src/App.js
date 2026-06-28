@@ -15,6 +15,7 @@ const { Header, Content, Footer } = Layout;
 const { Title, Text } = Typography;
 
 const WS_URL = 'ws://localhost:8765';
+const WS_HTTP_URL = 'http://localhost:8765';
 
 function AppContent() {
   const { message, modal } = AntApp.useApp();
@@ -35,6 +36,19 @@ function AppContent() {
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const shouldReconnectRef = useRef(true);
+  const authTokenRef = useRef(window.electronAPI?.getWsToken?.() || '');
+
+  const fetchAuthToken = useCallback(async () => {
+    if (authTokenRef.current) return;
+    try {
+      const resp = await fetch(`${WS_HTTP_URL}/auth-token`);
+      if (resp.ok) {
+        const data = await resp.json();
+        authTokenRef.current = data.token || '';
+      }
+    } catch {
+    }
+  }, []);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
@@ -67,13 +81,19 @@ function AppContent() {
     };
   }, []);
 
-  const connectWebSocket = useCallback(() => {
+  const connectWebSocket = useCallback(async () => {
     if (!shouldReconnectRef.current) return;
+
+    await fetchAuthToken();
 
     try {
       const ws = new WebSocket(WS_URL);
 
       ws.onopen = () => {
+        const token = authTokenRef.current;
+        if (token) {
+          ws.send(JSON.stringify({ type: 'auth', token }));
+        }
         setConnected(true);
         setIsCapturing(false);
         message.success('已连接到采集系统');
@@ -179,7 +199,7 @@ function AppContent() {
       console.error('Failed to connect:', e);
       message.error('连接失败');
     }
-  }, [message]);
+  }, [message, fetchAuthToken]);
 
   useEffect(() => {
     shouldReconnectRef.current = true;
@@ -251,7 +271,11 @@ function AppContent() {
         sendCommand('exit_app');
         message.info('正在关闭当前采集服务...');
         setTimeout(() => {
-          window.close();
+          if (window.electronAPI?.closeWindow) {
+            window.electronAPI.closeWindow();
+          } else {
+            window.close();
+          }
         }, 2000);
       }
     });
