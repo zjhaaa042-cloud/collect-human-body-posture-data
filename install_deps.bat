@@ -91,18 +91,14 @@ if errorlevel 1 goto fail
 echo.
 echo [5/5] Installing frontend packages...
 cd /d "%~dp0frontend"
-if exist "package-lock.json" (
-  call npm ci
-) else (
-  call npm install
-)
+call npm install --no-audit --no-fund
 if errorlevel 1 goto fail
 
 cd /d "%~dp0"
-if not exist "frontend\node_modules" (
+if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
   echo.
   echo [ERROR] Frontend packages were not installed correctly.
-  echo The folder frontend\node_modules was not created.
+  echo The file frontend\node_modules\.bin\react-scripts.cmd was not created.
   echo Please check the npm output above, then run install_deps.bat again.
   goto fail
 )
@@ -146,6 +142,7 @@ echo.
 echo Please check the error above.
 echo Common fixes:
 echo - Install Python 3.10+ and Node.js 18+ LTS.
+echo - If frontend install fails, use Node.js 20 LTS or 22 LTS instead of very new Node versions.
 echo - If PyAudio fails, install Microsoft C++ Build Tools, then run this file again.
 echo - If pyorbbecsdk2 fails, install the Orbbec SDK/runtime for your camera.
 echo.

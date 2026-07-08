@@ -21,7 +21,7 @@ if /i not "%PYTHON_CMD%"=="python" (
   )
 )
 
-if not exist "frontend\node_modules" (
+if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
   echo [WARN] Frontend dependencies were not found.
   set "NEED_INSTALL=1"
 )
@@ -50,10 +50,27 @@ if defined NEED_INSTALL (
       exit /b 1
     )
   )
-  if not exist "frontend\node_modules" (
-    echo [ERROR] Frontend dependencies are still missing.
-    pause
-    exit /b 1
+  if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
+    echo.
+    echo [WARN] Frontend startup dependency is still missing.
+    echo Trying npm install in frontend again...
+    echo.
+    cd /d "%~dp0frontend"
+    call npm install --no-audit --no-fund
+    cd /d "%~dp0"
+    if errorlevel 1 (
+      echo [ERROR] npm install failed.
+      echo Please install Node.js 20 LTS or 22 LTS, then run go.bat again.
+      pause
+      exit /b 1
+    )
+    if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
+      echo [ERROR] Frontend dependencies are still missing.
+      echo Missing: frontend\node_modules\.bin\react-scripts.cmd
+      echo Please install Node.js 20 LTS or 22 LTS, then run install_deps.bat again.
+      pause
+      exit /b 1
+    )
   )
 )
 
