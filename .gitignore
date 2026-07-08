@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.so
 venv/
+.venv/
 *.egg-info/
 
 # Node.js
