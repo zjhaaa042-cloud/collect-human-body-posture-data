@@ -43,6 +43,12 @@ if not exist ".venv\Scripts\python.exe" (
 
 echo.
 echo [3/5] Installing Python packages...
+call ".venv\Scripts\python.exe" -m pip --version >nul 2>nul
+if errorlevel 1 (
+  echo pip was not found in .venv, trying to repair it...
+  call ".venv\Scripts\python.exe" -m ensurepip --upgrade
+  if errorlevel 1 goto pip_fail
+)
 call ".venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
 if errorlevel 1 goto fail
 call ".venv\Scripts\python.exe" -m pip install -r requirements.txt
@@ -75,6 +81,20 @@ echo You can now run go.bat to start the project.
 echo.
 pause
 exit /b 0
+
+:pip_fail
+cd /d "%~dp0"
+echo.
+echo ==========================================
+echo   Failed to enable pip in .venv
+echo ==========================================
+echo.
+echo The existing .venv is incomplete or broken.
+echo Please delete the .venv folder, make sure Python was installed with pip,
+echo then run install_deps.bat again.
+echo.
+pause
+exit /b 1
 
 :fail
 cd /d "%~dp0"
