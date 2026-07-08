@@ -2,6 +2,9 @@
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
+set "PAUSE_ON_EXIT=1"
+if /i "%~1"=="--no-pause" set "PAUSE_ON_EXIT=0"
+
 echo.
 echo ==========================================
 echo   Install project dependencies
@@ -14,7 +17,7 @@ if errorlevel 1 (
   echo Please install Python 3.10+ and check "Add python.exe to PATH".
   echo Download: https://www.python.org/downloads/
   echo.
-  pause
+  if "%PAUSE_ON_EXIT%"=="1" pause
   exit /b 1
 )
 
@@ -24,7 +27,7 @@ if errorlevel 1 (
   echo Please install Node.js 18+ LTS first.
   echo Download: https://nodejs.org/
   echo.
-  pause
+  if "%PAUSE_ON_EXIT%"=="1" pause
   exit /b 1
 )
 
@@ -96,6 +99,14 @@ if exist "package-lock.json" (
 if errorlevel 1 goto fail
 
 cd /d "%~dp0"
+if not exist "frontend\node_modules" (
+  echo.
+  echo [ERROR] Frontend packages were not installed correctly.
+  echo The folder frontend\node_modules was not created.
+  echo Please check the npm output above, then run install_deps.bat again.
+  goto fail
+)
+
 echo.
 echo ==========================================
 echo   Dependencies installed successfully
@@ -108,7 +119,7 @@ if exist ".use_system_python" (
   echo go.bat will use the system Python instead.
 )
 echo.
-pause
+if "%PAUSE_ON_EXIT%"=="1" pause
 exit /b 0
 
 :pip_fail
@@ -122,7 +133,7 @@ echo pip could not be enabled for this Python installation.
 echo Please reinstall Python 3.10+ from https://www.python.org/downloads/
 echo and make sure "pip" and "Add python.exe to PATH" are selected.
 echo.
-pause
+if "%PAUSE_ON_EXIT%"=="1" pause
 exit /b 1
 
 :fail
@@ -138,5 +149,5 @@ echo - Install Python 3.10+ and Node.js 18+ LTS.
 echo - If PyAudio fails, install Microsoft C++ Build Tools, then run this file again.
 echo - If pyorbbecsdk2 fails, install the Orbbec SDK/runtime for your camera.
 echo.
-pause
+if "%PAUSE_ON_EXIT%"=="1" pause
 exit /b 1

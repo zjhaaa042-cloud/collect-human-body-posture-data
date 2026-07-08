@@ -7,6 +7,8 @@ echo   Body Posture Data Collection System
 echo ==========================================
 echo.
 
+set "NEED_INSTALL="
+
 set "PYTHON_CMD=.venv\Scripts\python.exe"
 if exist ".use_system_python" (
   set "PYTHON_CMD=python"
@@ -15,19 +17,44 @@ if exist ".use_system_python" (
 if /i not "%PYTHON_CMD%"=="python" (
   if not exist ".venv\Scripts\python.exe" (
     echo [WARN] Python virtual environment was not found.
-    echo Please run install_deps.bat first to install backend and frontend dependencies.
-    echo.
-    pause
-    exit /b 1
+    set "NEED_INSTALL=1"
   )
 )
 
 if not exist "frontend\node_modules" (
   echo [WARN] Frontend dependencies were not found.
-  echo Please run install_deps.bat first to install backend and frontend dependencies.
+  set "NEED_INSTALL=1"
+)
+
+if defined NEED_INSTALL (
   echo.
-  pause
-  exit /b 1
+  echo Running install_deps.bat now...
+  echo.
+  call "%~dp0install_deps.bat" --no-pause
+  if errorlevel 1 (
+    echo.
+    echo [ERROR] Dependency installation failed. Startup stopped.
+    echo.
+    pause
+    exit /b 1
+  )
+  cd /d "%~dp0"
+  set "PYTHON_CMD=.venv\Scripts\python.exe"
+  if exist ".use_system_python" (
+    set "PYTHON_CMD=python"
+  )
+  if /i not "%PYTHON_CMD%"=="python" (
+    if not exist ".venv\Scripts\python.exe" (
+      echo [ERROR] Backend Python environment is still missing.
+      pause
+      exit /b 1
+    )
+  )
+  if not exist "frontend\node_modules" (
+    echo [ERROR] Frontend dependencies are still missing.
+    pause
+    exit /b 1
+  )
 )
 
 echo [1/2] Starting backend...
