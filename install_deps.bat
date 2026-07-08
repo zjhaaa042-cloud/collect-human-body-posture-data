@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
 echo.
@@ -32,26 +32,50 @@ echo [1/5] Checking Python version...
 python --version
 if errorlevel 1 goto fail
 
+set "PYTHON_CMD=.venv\Scripts\python.exe"
+set "PIP_SCOPE="
+if exist ".use_system_python" del /q ".use_system_python" >nul 2>nul
+
 echo.
 echo [2/5] Creating Python virtual environment...
 if not exist ".venv\Scripts\python.exe" (
   python -m venv .venv
-  if errorlevel 1 goto fail
+  if errorlevel 1 (
+    echo.
+    echo [WARN] Python virtual environment creation failed.
+    echo [WARN] Falling back to current Python with --user package installation.
+    set "PYTHON_CMD=python"
+    set "PIP_SCOPE=--user"
+    echo use system python>"%~dp0.use_system_python"
+  )
 ) else (
   echo Existing .venv found, reusing it.
 )
 
 echo.
 echo [3/5] Installing Python packages...
-call ".venv\Scripts\python.exe" -m pip --version >nul 2>nul
+call "!PYTHON_CMD!" -m pip --version >nul 2>nul
 if errorlevel 1 (
-  echo pip was not found in .venv, trying to repair it...
-  call ".venv\Scripts\python.exe" -m ensurepip --upgrade
-  if errorlevel 1 goto pip_fail
+  echo pip was not found, trying to enable it...
+  call "!PYTHON_CMD!" -m ensurepip --upgrade
+  if errorlevel 1 (
+    if /i "!PYTHON_CMD!"==".venv\Scripts\python.exe" (
+      echo.
+      echo [WARN] Could not enable pip in .venv.
+      echo [WARN] Falling back to current Python with --user package installation.
+      set "PYTHON_CMD=python"
+      set "PIP_SCOPE=--user"
+      echo use system python>"%~dp0.use_system_python"
+      call "!PYTHON_CMD!" -m pip --version >nul 2>nul
+      if errorlevel 1 goto pip_fail
+    ) else (
+      goto pip_fail
+    )
+  )
 )
-call ".venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
+call "!PYTHON_CMD!" -m pip install !PIP_SCOPE! --upgrade pip setuptools wheel
 if errorlevel 1 goto fail
-call ".venv\Scripts\python.exe" -m pip install -r requirements.txt
+call "!PYTHON_CMD!" -m pip install !PIP_SCOPE! -r requirements.txt
 if errorlevel 1 goto fail
 
 echo.
@@ -78,6 +102,11 @@ echo   Dependencies installed successfully
 echo ==========================================
 echo.
 echo You can now run go.bat to start the project.
+if exist ".use_system_python" (
+  echo.
+  echo Note: .venv could not be used on this computer.
+  echo go.bat will use the system Python instead.
+)
 echo.
 pause
 exit /b 0
@@ -89,9 +118,9 @@ echo ==========================================
 echo   Failed to enable pip in .venv
 echo ==========================================
 echo.
-echo The existing .venv is incomplete or broken.
-echo Please delete the .venv folder, make sure Python was installed with pip,
-echo then run install_deps.bat again.
+echo pip could not be enabled for this Python installation.
+echo Please reinstall Python 3.10+ from https://www.python.org/downloads/
+echo and make sure "pip" and "Add python.exe to PATH" are selected.
 echo.
 pause
 exit /b 1

@@ -7,12 +7,19 @@ echo   Body Posture Data Collection System
 echo ==========================================
 echo.
 
-if not exist ".venv\Scripts\python.exe" (
-  echo [WARN] Python virtual environment was not found.
-  echo Please run install_deps.bat first to install backend and frontend dependencies.
-  echo.
-  pause
-  exit /b 1
+set "PYTHON_CMD=.venv\Scripts\python.exe"
+if exist ".use_system_python" (
+  set "PYTHON_CMD=python"
+)
+
+if /i not "%PYTHON_CMD%"=="python" (
+  if not exist ".venv\Scripts\python.exe" (
+    echo [WARN] Python virtual environment was not found.
+    echo Please run install_deps.bat first to install backend and frontend dependencies.
+    echo.
+    pause
+    exit /b 1
+  )
 )
 
 if not exist "frontend\node_modules" (
@@ -24,7 +31,7 @@ if not exist "frontend\node_modules" (
 )
 
 echo [1/2] Starting backend...
-start "Backend" cmd /c ".venv\Scripts\python.exe run_backend.py"
+start "Backend" cmd /c "%PYTHON_CMD% run_backend.py"
 
 echo [2/2] Waiting 5 seconds...
 timeout /t 5 /nobreak >nul

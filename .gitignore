@@ -30,6 +30,7 @@ logs/
 config.json
 .env
 .ws_token
+.use_system_python
 
 # IDE
 .vscode/
