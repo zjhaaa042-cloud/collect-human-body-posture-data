@@ -113,6 +113,50 @@
   white-space: normal;
 }
 
+.camera-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.camera-status-tag {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.camera-status-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.camera-device-name {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.camera-status-message {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.camera-device-select {
+  width: 100%;
+}
+
+.camera-actions {
+  width: 100%;
+}
+
+.camera-actions .ant-btn:first-child {
+  flex: 1;
+}
+
 .data-type-list {
   width: 100%;
 }
@@ -197,6 +241,10 @@
 .control-voice-mic-icon.active {
   color: var(--accent);
   animation: pulse-scale 1s infinite;
+}
+
+.control-voice-mic-icon.ready {
+  color: var(--primary);
 }
 
 @keyframes pulse-scale {
