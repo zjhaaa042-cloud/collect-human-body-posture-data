@@ -95,10 +95,10 @@ call "%~dp0install_frontend_deps.bat" --no-pause
 if errorlevel 1 goto fail
 
 cd /d "%~dp0"
-if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
+if not exist "frontend\node_modules\.bin\vite.cmd" (
   echo.
   echo [ERROR] Frontend packages were not installed correctly.
-  echo The file frontend\node_modules\.bin\react-scripts.cmd was not created.
+  echo The file frontend\node_modules\.bin\vite.cmd was not created.
   echo Please check the npm output above, then run install_deps.bat again.
   goto fail
 )
