@@ -38,7 +38,7 @@
     "preview_height": 240,
     "jpeg_quality": 50
   },
-  "websocket_host": "localhost",
+  "websocket_host": "0.0.0.0",
   "websocket_port": 8765,
   "log_level": "INFO",
   "log_file": "logs/app.log"

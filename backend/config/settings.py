@@ -56,7 +56,7 @@ class Settings(BaseModel):
     distance: DistanceSettings = DistanceSettings()
     gui: GUISettings = GUISettings()
 
-    websocket_host: str = "localhost"
+    websocket_host: str = "0.0.0.0"
     websocket_port: int = 8765
 
     log_level: str = "INFO"

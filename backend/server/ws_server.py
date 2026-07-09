@@ -2,10 +2,12 @@ import asyncio
 import json
 import re
 import secrets
+import ipaddress
 import websockets
 from websockets.http11 import Response
 from websockets.datastructures import Headers
 from typing import Set, Callable, Any
+from urllib.parse import urlparse
 from loguru import logger
 
 from ..core.camera_manager import CameraManager
@@ -60,6 +62,31 @@ def _is_local_connection(connection) -> bool:
         return _is_local_address(connection.remote_address)
     except Exception:
         return False
+
+
+def _is_allowed_auth_origin(origin: str) -> bool:
+    if not origin:
+        return False
+    if origin in _ALLOWED_AUTH_ORIGINS:
+        return True
+    try:
+        parsed = urlparse(origin)
+        if parsed.scheme not in {"http", "https"} or parsed.port != 3000:
+            return False
+        host = parsed.hostname or ""
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except Exception:
+        return False
+
+
+def _cors_headers_for_origin(origin: str):
+    if origin and _is_allowed_auth_origin(origin):
+        return [
+            ("Access-Control-Allow-Origin", origin),
+            ("Vary", "Origin"),
+        ]
+    return []
 
 
 def _validate_field(value: str, field_name: str, pattern=None) -> str:
@@ -467,17 +494,29 @@ class WebSocketServer:
             await self._send_camera_status(websocket, action="disconnect")
 
     async def _process_http_request(self, connection, request):
+        if request.path == "/health":
+            origin = request.headers.get("Origin")
+            body = json.dumps({
+                "ok": True,
+                "service": "body-posture-backend",
+                "host": self.host,
+                "port": self.port,
+                "clients": len(self.clients)
+            }, ensure_ascii=False).encode("utf-8")
+            headers = Headers([
+                ("Content-Type", "application/json"),
+                *_cors_headers_for_origin(origin)
+            ])
+            return Response(200, "OK", headers, body)
+
         if request.path == "/auth-token":
             origin = request.headers.get("Origin")
             if origin:
-                if origin not in _ALLOWED_AUTH_ORIGINS:
+                if not _is_allowed_auth_origin(origin):
                     body = b"Forbidden origin"
                     headers = Headers([("Content-Type", "text/plain; charset=utf-8")])
                     return Response(403, "Forbidden", headers, body)
-                cors_headers = [
-                    ("Access-Control-Allow-Origin", origin),
-                    ("Vary", "Origin"),
-                ]
+                cors_headers = _cors_headers_for_origin(origin)
             elif not _is_local_connection(connection):
                 body = b"Forbidden"
                 headers = Headers([("Content-Type", "text/plain; charset=utf-8")])

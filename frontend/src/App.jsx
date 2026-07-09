@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ConfigProvider, App as AntApp, theme, Layout, Typography, Space, Button, Tooltip } from 'antd';
+import { ConfigProvider, App as AntApp, theme, Layout, Typography, Space, Button, Tooltip, Modal, Input, Alert, Descriptions } from 'antd';
 import {
   AimOutlined,
   SettingOutlined,
   QuestionCircleOutlined,
-  PoweroffOutlined
+  PoweroffOutlined,
+  ApiOutlined,
+  ReloadOutlined,
+  LinkOutlined
 } from '@ant-design/icons';
 import PreviewPanel from './components/PreviewPanel';
 import ControlPanel from './components/ControlPanel';
@@ -14,8 +17,30 @@ import './styles/App.css';
 const { Header, Content, Footer } = Layout;
 const { Title, Text } = Typography;
 
-const WS_URL = 'ws://localhost:8765';
-const WS_HTTP_URL = 'http://localhost:8765';
+const BACKEND_PORT = '8765';
+
+const getDefaultBackendHost = () => {
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get('backend');
+  if (fromQuery) return fromQuery.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '').replace(/\/$/, '');
+
+  const saved = localStorage.getItem('backendHost');
+  if (saved) return saved;
+
+  const host = window.location.hostname;
+  if (host && host !== 'localhost' && host !== '127.0.0.1') {
+    return `${host}:${BACKEND_PORT}`;
+  }
+  return `localhost:${BACKEND_PORT}`;
+};
+
+const normalizeBackendHost = (value) => {
+  const clean = String(value || '').trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/^wss?:\/\//, '')
+    .replace(/\/$/, '');
+  return clean || `localhost:${BACKEND_PORT}`;
+};
 
 function AppContent() {
   const { message, modal } = AntApp.useApp();
@@ -30,6 +55,16 @@ function AppContent() {
   const [voiceActive, setVoiceActive] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [backendHost, setBackendHost] = useState(getDefaultBackendHost);
+  const [backendHostInput, setBackendHostInput] = useState(getDefaultBackendHost);
+  const [backendModalOpen, setBackendModalOpen] = useState(false);
+  const [backendCheck, setBackendCheck] = useState({
+    checking: false,
+    http: '未检测',
+    token: '未检测',
+    websocket: '未检测',
+    detail: '尚未运行检测'
+  });
   const [cameraStatus, setCameraStatus] = useState({
     sdk_available: false,
     device_present: false,
@@ -56,18 +91,20 @@ function AppContent() {
   const reconnectTimerRef = useRef(null);
   const shouldReconnectRef = useRef(true);
   const authTokenRef = useRef(window.electronAPI?.getWsToken?.() || '');
+  const wsUrl = `ws://${backendHost}`;
+  const backendHttpUrl = `http://${backendHost}`;
 
   const fetchAuthToken = useCallback(async () => {
     if (authTokenRef.current) return;
     try {
-      const resp = await fetch(`${WS_HTTP_URL}/auth-token`);
+      const resp = await fetch(`${backendHttpUrl}/auth-token`);
       if (resp.ok) {
         const data = await resp.json();
         authTokenRef.current = data.token || '';
       }
     } catch {
     }
-  }, []);
+  }, [backendHttpUrl]);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
@@ -115,7 +152,7 @@ function AppContent() {
     }
 
     try {
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         const token = authTokenRef.current;
@@ -254,7 +291,7 @@ function AppContent() {
       console.error('Failed to connect:', e);
       message.error('连接失败');
     }
-  }, [message, fetchAuthToken]);
+  }, [message, fetchAuthToken, wsUrl]);
 
   useEffect(() => {
     shouldReconnectRef.current = true;
@@ -281,6 +318,156 @@ function AppContent() {
       message.error('发送命令失败');
     }
   }, [message]);
+
+  const reconnectBackend = useCallback((nextHost = backendHost) => {
+    const normalized = normalizeBackendHost(nextHost);
+    localStorage.setItem('backendHost', normalized);
+    setBackendHost(normalized);
+    setBackendHostInput(normalized);
+    authTokenRef.current = '';
+    shouldReconnectRef.current = true;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+    }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setConnected(false);
+    reconnectTimerRef.current = setTimeout(connectWebSocket, 200);
+  }, [backendHost, connectWebSocket]);
+
+  const openBackendProbe = useCallback(() => {
+    window.open(`${backendHttpUrl}/health`, '_blank', 'noopener,noreferrer');
+  }, [backendHttpUrl]);
+
+  const testBackend = useCallback(async () => {
+    const normalized = normalizeBackendHost(backendHostInput);
+    const httpUrl = `http://${normalized}`;
+    const testWsUrl = `ws://${normalized}`;
+    setBackendCheck({
+      checking: true,
+      http: '检测中',
+      token: '等待中',
+      websocket: '等待中',
+      detail: `正在检测 ${httpUrl}`
+    });
+
+    let token = '';
+    try {
+      const healthResp = await fetch(`${httpUrl}/health`, { cache: 'no-store' });
+      setBackendCheck(prev => ({
+        ...prev,
+        http: healthResp.ok ? `正常 (${healthResp.status})` : `异常 (${healthResp.status})`,
+        detail: healthResp.ok ? 'HTTP 健康检查已响应' : 'HTTP 已响应，但状态码异常'
+      }));
+    } catch (error) {
+      setBackendCheck({
+        checking: false,
+        http: '失败',
+        token: '未检测',
+        websocket: '未检测',
+        detail: `HTTP 连接失败：${error.message}`
+      });
+      return;
+    }
+
+    try {
+      const tokenResp = await fetch(`${httpUrl}/auth-token`, { cache: 'no-store' });
+      if (!tokenResp.ok) {
+        setBackendCheck({
+          checking: false,
+          http: '正常',
+          token: `失败 (${tokenResp.status})`,
+          websocket: '未检测',
+          detail: '后端可访问，但鉴权 token 获取失败。请确认后端已更新到最新版，并允许局域网前端来源。'
+        });
+        return;
+      }
+      const data = await tokenResp.json();
+      token = data.token || '';
+      if (!token) throw new Error('token 为空');
+      setBackendCheck(prev => ({
+        ...prev,
+        token: '正常',
+        detail: '已获取鉴权 token，正在测试 WebSocket'
+      }));
+    } catch (error) {
+      setBackendCheck({
+        checking: false,
+        http: '正常',
+        token: '失败',
+        websocket: '未检测',
+        detail: `token 获取失败：${error.message}`
+      });
+      return;
+    }
+
+    await new Promise((resolve) => {
+      let done = false;
+      const ws = new WebSocket(testWsUrl);
+      const timeout = setTimeout(() => {
+        if (done) return;
+        done = true;
+        try { ws.close(); } catch {}
+        setBackendCheck(prev => ({
+          ...prev,
+          checking: false,
+          websocket: '超时',
+          detail: 'WebSocket 握手超时。常见原因是防火墙未放行 8765 端口，或后端没有监听 0.0.0.0。'
+        }));
+        resolve();
+      }, 5000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'auth', token }));
+      };
+      ws.onmessage = (event) => {
+        if (done) return;
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'auth_success') {
+            done = true;
+            clearTimeout(timeout);
+            ws.close();
+            setBackendCheck({
+              checking: false,
+              http: '正常',
+              token: '正常',
+              websocket: '正常',
+              detail: '后端连接正常，可以保存该地址并重新连接。'
+            });
+            resolve();
+          }
+        } catch {
+        }
+      };
+      ws.onerror = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timeout);
+        setBackendCheck(prev => ({
+          ...prev,
+          checking: false,
+          websocket: '失败',
+          detail: 'WebSocket 连接失败。请检查后端是否启动、防火墙是否放行 8765 端口、地址是否填对。'
+        }));
+        resolve();
+      };
+      ws.onclose = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timeout);
+        setBackendCheck(prev => ({
+          ...prev,
+          checking: false,
+          websocket: '失败',
+          detail: 'WebSocket 在鉴权前关闭。请查看后端控制台日志。'
+        }));
+        resolve();
+      };
+    });
+  }, [backendHostInput]);
 
   const handleCapture = useCallback((options) => {
     if (!connected) {
@@ -385,6 +572,15 @@ function AppContent() {
             <Tooltip title="系统设置">
               <Button type="text" icon={<SettingOutlined />} className="header-btn" aria-label="系统设置" />
             </Tooltip>
+            <Tooltip title="后端连接诊断">
+              <Button
+                type="text"
+                icon={<ApiOutlined />}
+                className="header-btn"
+                aria-label="后端连接诊断"
+                onClick={() => setBackendModalOpen(true)}
+              />
+            </Tooltip>
             <Tooltip title="帮助说明">
               <Button type="text" icon={<QuestionCircleOutlined />} className="header-btn" aria-label="帮助说明" />
             </Tooltip>
@@ -465,6 +661,50 @@ function AppContent() {
           </div>
         </div>
       )}
+
+      <Modal
+        title="后端连接诊断"
+        open={backendModalOpen}
+        onCancel={() => setBackendModalOpen(false)}
+        footer={[
+          <Button key="open" icon={<LinkOutlined />} onClick={openBackendProbe}>
+            打开后端
+          </Button>,
+          <Button key="test" icon={<ApiOutlined />} loading={backendCheck.checking} onClick={testBackend}>
+            检测连接
+          </Button>,
+          <Button key="save" type="primary" icon={<ReloadOutlined />} onClick={() => reconnectBackend(backendHostInput)}>
+            保存并重连
+          </Button>
+        ]}
+      >
+        <Space direction="vertical" size={12} className="backend-diagnostic">
+          <Alert
+            type={connected ? 'success' : 'warning'}
+            showIcon
+            message={connected ? '当前已连接后端' : '当前未连接后端'}
+            description={`当前地址：${backendHttpUrl}`}
+          />
+          <Input
+            addonBefore="后端地址"
+            value={backendHostInput}
+            onChange={e => setBackendHostInput(e.target.value)}
+            placeholder="例如 192.168.1.23:8765"
+          />
+          <Descriptions size="small" bordered column={1}>
+            <Descriptions.Item label="HTTP 健康检查">{backendCheck.http}</Descriptions.Item>
+            <Descriptions.Item label="鉴权 token">{backendCheck.token}</Descriptions.Item>
+            <Descriptions.Item label="WebSocket">{backendCheck.websocket}</Descriptions.Item>
+            <Descriptions.Item label="说明">{backendCheck.detail}</Descriptions.Item>
+          </Descriptions>
+          <Alert
+            type="info"
+            showIcon
+            message="跨设备连接提示"
+            description="如果前端运行在另一台设备，请把后端地址填成运行后端那台电脑的局域网 IP，例如 192.168.1.23:8765，并确认 Windows 防火墙放行 8765 端口。"
+          />
+        </Space>
+      </Modal>
     </Layout>
   );
 }
