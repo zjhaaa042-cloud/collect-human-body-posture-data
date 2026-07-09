@@ -4,23 +4,20 @@
   "description": "人体体态数据采集系统",
   "main": "electron-main.js",
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
+    "start": "vite --host 127.0.0.1 --port 3000",
+    "build": "vite build",
+    "test": "echo \"No frontend tests configured\"",
     "eject": "react-scripts eject",
     "electron:dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "npm run build && electron-builder"
   },
   "dependencies": {
     "@ant-design/icons": "^5.2.6",
-    "@testing-library/jest-dom": "^5.17.0",
-    "@testing-library/react": "^13.4.0",
-    "@testing-library/user-event": "^13.5.0",
     "antd": "^5.12.8",
+    "@vitejs/plugin-react": "^4.3.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
+    "vite": "^5.4.11"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

@@ -29,7 +29,7 @@ if not defined NEED_INSTALL (
   )
 )
 
-if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
+if not exist "frontend\node_modules\.bin\vite.cmd" (
   echo [WARN] Frontend dependencies were not found.
   set "NEED_INSTALL=1"
 )
@@ -58,7 +58,7 @@ if defined NEED_INSTALL (
       exit /b 1
     )
   )
-  if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
+  if not exist "frontend\node_modules\.bin\vite.cmd" (
     echo.
     echo [WARN] Frontend startup dependency is still missing.
     echo Trying frontend dependency installer again...
@@ -72,9 +72,9 @@ if defined NEED_INSTALL (
       pause
       exit /b 1
     )
-    if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
+    if not exist "frontend\node_modules\.bin\vite.cmd" (
       echo [ERROR] Frontend dependencies are still missing.
-      echo Missing: frontend\node_modules\.bin\react-scripts.cmd
+      echo Missing: frontend\node_modules\.bin\vite.cmd
       echo Please install Node.js 20 LTS or 22 LTS, then run install_deps.bat again.
       pause
       exit /b 1

@@ -16,16 +16,16 @@ if errorlevel 1 (
 )
 
 echo.
-echo [Frontend] Installing packages from npm registry...
+echo [Frontend] Installing runtime packages from npmmirror registry...
 cd /d "%~dp0frontend"
 set "INSTALL_FAILED=0"
-call npm install --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+call npm ci --omit=dev --registry=https://registry.npmmirror.com --legacy-peer-deps --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
 if errorlevel 1 (
   echo.
-  echo [WARN] npm registry failed. Retrying with npmmirror registry...
+  echo [WARN] npmmirror registry failed. Retrying with npm registry...
   echo.
-  call npm install --registry=https://registry.npmmirror.com --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+  call npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
   if errorlevel 1 set "INSTALL_FAILED=1"
 )
 
@@ -40,10 +40,10 @@ if "%INSTALL_FAILED%"=="1" (
   exit /b 1
 )
 
-if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
+if not exist "frontend\node_modules\.bin\vite.cmd" (
   echo.
   echo [ERROR] Frontend packages were not installed correctly.
-  echo Missing: frontend\node_modules\.bin\react-scripts.cmd
+  echo Missing: frontend\node_modules\.bin\vite.cmd
   echo Try running install_frontend_deps.bat again on a stable network.
   echo.
   if "%PAUSE_ON_EXIT%"=="1" pause
