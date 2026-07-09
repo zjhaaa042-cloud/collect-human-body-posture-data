@@ -123,6 +123,37 @@
   min-height: 26px;
 }
 
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.section-header-row .ant-typography {
+  margin-bottom: 0;
+}
+
+.auto-capture-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auto-capture-status {
+  min-height: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.auto-capture-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
 .action-section {
   display: flex;
   flex-direction: column;

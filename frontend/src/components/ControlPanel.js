@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Button, Checkbox, Space, Typography, Tag, List, Input, Select, Tooltip } from 'antd';
+import { Card, Button, Checkbox, Space, Typography, Tag, List, Input, Select, Tooltip, Switch, Progress } from 'antd';
 import {
   CameraOutlined,
   AudioOutlined,
@@ -8,7 +8,8 @@ import {
   HistoryOutlined,
   ReloadOutlined,
   DatabaseOutlined,
-  CheckCircleOutlined
+  CheckCircleOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons';
 import './ControlPanel.css';
 
@@ -31,7 +32,10 @@ const ControlPanel = ({
   sessionId,
   sessions = [],
   voiceActive,
+  autoCaptureStatus,
   onCapture,
+  onStartAutoCapture,
+  onStopAutoCapture,
   onCreateSession,
   onSelectSession,
   onFinishSession,
@@ -58,11 +62,39 @@ const ControlPanel = ({
     });
   };
 
+  const buildCaptureOptions = () => ({
+    save_rgb: saveRgb,
+    save_depth: saveDepth,
+    save_pointcloud: savePointcloud,
+    colored_pointcloud: true,
+    quality_check: true
+  });
+
+  const handleAutoCaptureChange = (checked) => {
+    if (checked) {
+      onStartAutoCapture({
+        options: buildCaptureOptions(),
+        stable_frames: 10,
+        max_distance_delta_mm: 30,
+        capture_count: 3,
+        capture_interval_sec: 1
+      });
+    } else {
+      onStopAutoCapture();
+    }
+  };
+
   const distanceStatus = distanceInfo?.status || 'no_data';
   const distanceM = distanceInfo?.distance_mm
     ? (distanceInfo.distance_mm / 1000).toFixed(2)
     : '--';
   const currentStatusColor = statusColors[distanceStatus] || statusColors.no_data;
+  const autoEnabled = Boolean(autoCaptureStatus?.enabled);
+  const stableFrames = autoCaptureStatus?.stable_frames || 0;
+  const requiredFrames = autoCaptureStatus?.required_frames || 10;
+  const autoCaptured = autoCaptureStatus?.captured || 0;
+  const autoTarget = autoCaptureStatus?.target_count || 3;
+  const stablePercent = Math.min(Math.round((stableFrames / requiredFrames) * 100), 100);
 
   const distancePercent = distanceInfo?.distance_mm
     ? Math.min(Math.max((distanceInfo.distance_mm / 1000 / 2.0) * 100, 0), 100)
@@ -161,6 +193,38 @@ const ControlPanel = ({
               3D 点云 (PLY)
             </Checkbox>
           </Space>
+        </div>
+
+        <div className="control-section auto-capture-section">
+          <div className="section-header-row">
+            <Title level={5}>
+              <Space>
+                <ThunderboltOutlined />
+                自动采集
+              </Space>
+            </Title>
+            <Switch
+              checked={autoEnabled}
+              disabled={!connected}
+              onChange={handleAutoCaptureChange}
+              size="small"
+            />
+          </div>
+          <div className="auto-capture-status">
+            <Text type="secondary">
+              {autoCaptureStatus?.message || '开启后，姿态稳定会自动采集 3 组数据'}
+            </Text>
+          </div>
+          <Progress
+            percent={stablePercent}
+            size="small"
+            showInfo={false}
+            status={autoCaptureStatus?.state === 'capturing' ? 'active' : 'normal'}
+          />
+          <div className="auto-capture-meta">
+            <Text type="secondary">稳定 {stableFrames}/{requiredFrames} 帧</Text>
+            <Text type="secondary">已采集 {autoCaptured}/{autoTarget} 组</Text>
+          </div>
         </div>
 
         <div className="control-section action-section">

@@ -21,6 +21,14 @@ if /i not "%PYTHON_CMD%"=="python" (
   )
 )
 
+if not defined NEED_INSTALL (
+  "%PYTHON_CMD%" -c "import pydantic, websockets, cv2, numpy, loguru" >nul 2>nul
+  if errorlevel 1 (
+    echo [WARN] Backend Python dependencies are incomplete.
+    set "NEED_INSTALL=1"
+  )
+)
+
 if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
   echo [WARN] Frontend dependencies were not found.
   set "NEED_INSTALL=1"

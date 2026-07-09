@@ -141,7 +141,8 @@ echo ==========================================
 echo.
 echo Please check the error above.
 echo Common fixes:
-echo - Install Python 3.10+ and Node.js 18+ LTS.
+echo - Install Python 3.10-3.12 and Node.js 18+ LTS.
+echo - Python 3.13 may not have wheels for some camera/point-cloud packages yet.
 echo - If frontend install fails, use Node.js 20 LTS or 22 LTS instead of very new Node versions.
 echo - If npm reports ECONNRESET, rerun install_frontend_deps.bat or switch to a stable network.
 echo - If PyAudio fails, install Microsoft C++ Build Tools, then run this file again.

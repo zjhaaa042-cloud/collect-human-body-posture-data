@@ -77,6 +77,18 @@ class WebSocketServer:
         self.is_shutting_down = False
         self.capture_lock = asyncio.Lock()
         self.preview_task = None
+        self.auto_capture_enabled = False
+        self.auto_capture_options = {}
+        self.auto_required_frames = 10
+        self.auto_max_distance_delta_mm = 30.0
+        self.auto_target_count = 3
+        self.auto_capture_interval_sec = 1.0
+        self.auto_stable_distances = []
+        self.auto_captured_count = 0
+        self.auto_state = "idle"
+        self.auto_message = "自动采集未开启"
+        self.auto_task = None
+        self.auto_last_voice_key = None
 
         self._setup_voice()
 
@@ -145,19 +157,140 @@ class WebSocketServer:
         except Exception:
             pass
 
+    def _speak_auto(self, key: str, text: str):
+        if self.auto_last_voice_key == key:
+            return
+        self.auto_last_voice_key = key
+        if self.voice_synthesizer:
+            self.voice_synthesizer.speak(text, blocking=False)
+
+    async def _broadcast_auto_status(self):
+        await self._broadcast({
+            "type": "auto_capture_status",
+            "data": {
+                "enabled": self.auto_capture_enabled,
+                "stable_frames": len(self.auto_stable_distances),
+                "required_frames": self.auto_required_frames,
+                "captured": self.auto_captured_count,
+                "target_count": self.auto_target_count,
+                "state": self.auto_state,
+                "message": self.auto_message
+            }
+        })
+
+    def _set_auto_waiting(self, state: str, message: str, reset_stability: bool = True):
+        if reset_stability:
+            self.auto_stable_distances = []
+        self.auto_state = state
+        self.auto_message = message
+
+    async def _start_auto_capture(self, data: dict = None):
+        data = data or {}
+        self.auto_capture_options = data.get("options") or {}
+        self.auto_required_frames = max(1, int(data.get("stable_frames", 10)))
+        self.auto_max_distance_delta_mm = max(1.0, float(data.get("max_distance_delta_mm", 30.0)))
+        self.auto_target_count = max(1, int(data.get("capture_count", 3)))
+        self.auto_capture_interval_sec = max(0.1, float(data.get("capture_interval_sec", 1.0)))
+        self.auto_capture_enabled = True
+        self.auto_stable_distances = []
+        self.auto_captured_count = 0
+        self.auto_state = "waiting"
+        self.auto_message = "自动采集已开启，请站到相机前方"
+        self.auto_last_voice_key = None
+        self._speak_auto("started", "自动采集已开启，请站到相机前方。")
+        await self._broadcast_auto_status()
+
+    async def _stop_auto_capture(self, speak: bool = True):
+        self.auto_capture_enabled = False
+        self.auto_stable_distances = []
+        self.auto_state = "stopped"
+        self.auto_message = "自动采集已停止"
+        if speak:
+            self.auto_last_voice_key = None
+            self._speak_auto("stopped", "自动采集已停止。")
+        await self._broadcast_auto_status()
+
+    async def _update_auto_capture(self, distance_info):
+        if not self.auto_capture_enabled:
+            return
+        if self.auto_task and not self.auto_task.done():
+            return
+
+        if distance_info is None or distance_info.status != DistanceStatus.OPTIMAL:
+            if self.auto_state != "waiting":
+                self.auto_last_voice_key = None
+            self._set_auto_waiting("waiting", "等待人体进入合适距离")
+            await self._broadcast_auto_status()
+            return
+
+        distance_mm = float(distance_info.distance_mm)
+        self.auto_stable_distances.append(distance_mm)
+        if len(self.auto_stable_distances) > self.auto_required_frames:
+            self.auto_stable_distances = self.auto_stable_distances[-self.auto_required_frames:]
+
+        distance_delta = max(self.auto_stable_distances) - min(self.auto_stable_distances)
+        if distance_delta > self.auto_max_distance_delta_mm:
+            self.auto_stable_distances = [distance_mm]
+            self.auto_state = "stabilizing"
+            self.auto_message = "距离合适，请保持不动"
+            self._speak_auto("hold_still", "距离合适，请保持不动。")
+            await self._broadcast_auto_status()
+            return
+
+        self.auto_state = "stabilizing"
+        self.auto_message = "距离合适，请保持不动"
+        self._speak_auto("hold_still", "距离合适，请保持不动。")
+        await self._broadcast_auto_status()
+
+        if len(self.auto_stable_distances) >= self.auto_required_frames:
+            self.auto_task = asyncio.create_task(self._run_auto_capture_batch())
+
+    async def _run_auto_capture_batch(self):
+        self.auto_state = "capturing"
+        self.auto_message = "姿态稳定，开始自动采集"
+        self.auto_stable_distances = []
+        self._speak_auto("batch_started", "姿态稳定，开始自动采集。")
+        await self._broadcast_auto_status()
+
+        while self.auto_capture_enabled and self.auto_captured_count < self.auto_target_count:
+            capture_options = {**self.auto_capture_options, "_suppress_voice": True}
+            result = await self._handle_capture(capture_options)
+            next_index = self.auto_captured_count + 1
+            if result and result.success:
+                self.auto_captured_count = next_index
+                self.auto_message = f"已采集第 {self.auto_captured_count} 组"
+                self._speak_auto(f"capture_success_{self.auto_captured_count}", f"已采集第 {self.auto_captured_count} 组。")
+            else:
+                self.auto_message = f"第 {next_index} 组采集失败，请保持姿态"
+                self._speak_auto(f"capture_failed_{next_index}", f"第 {next_index} 组采集失败，请保持姿态。")
+
+            await self._broadcast_auto_status()
+            if self.auto_captured_count >= self.auto_target_count:
+                break
+            await asyncio.sleep(self.auto_capture_interval_sec)
+
+        if self.auto_capture_enabled and self.auto_captured_count >= self.auto_target_count:
+            self.auto_capture_enabled = False
+            self.auto_state = "completed"
+            self.auto_message = f"自动采集完成，共采集 {self.auto_captured_count} 组数据"
+            self.auto_last_voice_key = None
+            self._speak_auto("completed", f"自动采集完成，共采集 {self.auto_captured_count} 组数据。")
+            await self._broadcast_auto_status()
+
     async def _handle_capture(self, options: dict = None):
         if self.capture_lock.locked():
             await self._broadcast({
                 "type": "capture_result",
                 "data": {"success": False, "error": "正在采集中，请稍候"}
             })
-            return
+            return None
 
         async with self.capture_lock:
             self.is_capturing = True
             try:
+                suppress_voice = bool((options or {}).get("_suppress_voice"))
                 config = self._build_capture_config(options)
-                if self.voice_synthesizer:
+                if self.voice_synthesizer and not suppress_voice:
                     self.voice_synthesizer.speak("开始采集，请保持姿势不动。", blocking=False)
 
                 await asyncio.sleep(1)
@@ -168,12 +301,12 @@ class WebSocketServer:
                         "type": "capture_result",
                         "data": {"success": False, "error": "未获取到相机画面"}
                     })
-                    return
+                    return None
 
                 if frames.depth is not None:
                     human_detected, _ = self.depth_analyzer.detect_human(frames.depth, frames.depth_scale)
                     if not human_detected:
-                        if self.voice_synthesizer:
+                        if self.voice_synthesizer and not suppress_voice:
                             self.voice_synthesizer.speak("未识别到人体，请站在相机前方。", blocking=False)
                         await self._broadcast({
                             "type": "capture_result",
@@ -182,7 +315,7 @@ class WebSocketServer:
                                 "error": "未识别到人体，请站在相机前方"
                             }
                         })
-                        return
+                        return None
 
                 point_cloud = None
                 if config.save_pointcloud:
@@ -208,11 +341,12 @@ class WebSocketServer:
                     }
                 })
 
-                if self.voice_synthesizer:
+                if self.voice_synthesizer and not suppress_voice:
                     if result.success:
                         self.voice_synthesizer.speak("采集完成。", blocking=False)
                     else:
                         self.voice_synthesizer.speak("采集失败，请重试。", blocking=False)
+                return result
             finally:
                 self.is_capturing = False
 
@@ -306,6 +440,10 @@ class WebSocketServer:
             await self._stop_preview()
         elif msg_type == "capture_single":
             await self._handle_capture(data.get("options"))
+        elif msg_type == "start_auto_capture":
+            await self._start_auto_capture(data)
+        elif msg_type == "stop_auto_capture":
+            await self._stop_auto_capture()
         elif msg_type == "create_session":
             session_name = _validate_field(data.get("session_name", ""), "session_name", _SAFE_PATTERN)
             session_id = self.data_collector.create_session(session_name)
@@ -436,6 +574,7 @@ class WebSocketServer:
                             "message": distance_info.message,
                             "confidence": distance_info.confidence
                         }
+                        await self._update_auto_capture(distance_info)
 
                     await self._broadcast({
                         "type": "preview_frame",
@@ -517,6 +656,7 @@ class WebSocketServer:
     def stop(self):
         self.is_previewing = False
         self.is_capturing = False
+        self.auto_capture_enabled = False
         if self.voice_recognizer:
             try:
                 self.voice_recognizer.release()

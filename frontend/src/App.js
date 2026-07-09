@@ -30,6 +30,15 @@ function AppContent() {
   const [voiceActive, setVoiceActive] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [autoCaptureStatus, setAutoCaptureStatus] = useState({
+    enabled: false,
+    stable_frames: 0,
+    required_frames: 10,
+    captured: 0,
+    target_count: 3,
+    state: 'idle',
+    message: '自动采集未开启'
+  });
   const [leftPanelWidth, setLeftPanelWidth] = useState(70);
   const isResizing = useRef(false);
   const containerRef = useRef(null);
@@ -152,6 +161,9 @@ function AppContent() {
             case 'voice_activity':
               setVoiceActive(data.data.active);
               break;
+            case 'auto_capture_status':
+              setAutoCaptureStatus(data.data);
+              break;
             case 'session_list':
               setSessions(data.data.sessions || []);
               break;
@@ -235,6 +247,18 @@ function AppContent() {
     setIsCapturing(true);
     sendCommand('capture_single', { options });
   }, [sendCommand, connected, message]);
+
+  const handleStartAutoCapture = useCallback((payload) => {
+    if (!connected) {
+      message.warning('未连接到服务器');
+      return;
+    }
+    sendCommand('start_auto_capture', payload);
+  }, [sendCommand, connected, message]);
+
+  const handleStopAutoCapture = useCallback(() => {
+    sendCommand('stop_auto_capture');
+  }, [sendCommand]);
 
   const handleCreateSession = useCallback((sessionName) => {
     sendCommand('create_session', { session_name: sessionName });
@@ -341,7 +365,10 @@ function AppContent() {
               sessionId={sessionId}
               sessions={sessions}
               voiceActive={voiceActive}
+              autoCaptureStatus={autoCaptureStatus}
               onCapture={handleCapture}
+              onStartAutoCapture={handleStartAutoCapture}
+              onStopAutoCapture={handleStopAutoCapture}
               onCreateSession={handleCreateSession}
               onSelectSession={handleSelectSession}
               onFinishSession={handleFinishSession}
