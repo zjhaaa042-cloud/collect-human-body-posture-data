@@ -53,13 +53,13 @@ if defined NEED_INSTALL (
   if not exist "frontend\node_modules\.bin\react-scripts.cmd" (
     echo.
     echo [WARN] Frontend startup dependency is still missing.
-    echo Trying npm install in frontend again...
+    echo Trying frontend dependency installer again...
     echo.
-    cd /d "%~dp0frontend"
-    call npm install --no-audit --no-fund
+    cd /d "%~dp0"
+    call "%~dp0install_frontend_deps.bat" --no-pause
     cd /d "%~dp0"
     if errorlevel 1 (
-      echo [ERROR] npm install failed.
+      echo [ERROR] Frontend dependency installation failed.
       echo Please install Node.js 20 LTS or 22 LTS, then run go.bat again.
       pause
       exit /b 1

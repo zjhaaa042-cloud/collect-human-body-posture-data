@@ -90,8 +90,8 @@ if errorlevel 1 goto fail
 
 echo.
 echo [5/5] Installing frontend packages...
-cd /d "%~dp0frontend"
-call npm install --no-audit --no-fund
+cd /d "%~dp0"
+call "%~dp0install_frontend_deps.bat" --no-pause
 if errorlevel 1 goto fail
 
 cd /d "%~dp0"
@@ -143,6 +143,7 @@ echo Please check the error above.
 echo Common fixes:
 echo - Install Python 3.10+ and Node.js 18+ LTS.
 echo - If frontend install fails, use Node.js 20 LTS or 22 LTS instead of very new Node versions.
+echo - If npm reports ECONNRESET, rerun install_frontend_deps.bat or switch to a stable network.
 echo - If PyAudio fails, install Microsoft C++ Build Tools, then run this file again.
 echo - If pyorbbecsdk2 fails, install the Orbbec SDK/runtime for your camera.
 echo.
