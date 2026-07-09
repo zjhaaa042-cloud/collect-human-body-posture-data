@@ -75,16 +75,17 @@ if defined NEED_INSTALL (
 )
 
 echo [1/2] Starting backend...
-start "Backend" cmd /c "%PYTHON_CMD% run_backend.py"
+start "Backend" /min cmd /c "%PYTHON_CMD% run_backend.py"
 
 echo [2/2] Waiting 5 seconds...
 timeout /t 5 /nobreak >nul
 
 echo [3/2] Starting frontend...
-start "Frontend" cmd /c "cd frontend && npm start"
+start "Frontend" /min cmd /c "cd frontend && npm start"
 
 echo.
 echo Done! Both services are starting...
+echo Backend and frontend windows are minimized.
 echo.
 echo Backend:  ws://localhost:8765
 echo Frontend: http://localhost:3000
