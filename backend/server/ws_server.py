@@ -34,6 +34,33 @@ _MAX_LENGTHS = {
 _SAFE_PATTERN = re.compile(r'^[\w\-\u4e00-\u9fff\s]+$')
 _FILENAME_PATTERN = re.compile(r'^[\w\-\.]+$')
 
+_ALLOWED_AUTH_ORIGINS = {
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+}
+
+_MAX_AUTO_STABLE_FRAMES = 120
+_MAX_AUTO_DISTANCE_DELTA_MM = 1000.0
+_MAX_AUTO_CAPTURE_COUNT = 100
+_MAX_AUTO_CAPTURE_INTERVAL_SEC = 60.0
+
+
+def _is_local_address(remote_address) -> bool:
+    if not remote_address:
+        return False
+    host = remote_address[0] if isinstance(remote_address, tuple) else remote_address
+    host = str(host).strip().lower()
+    if host.startswith("::ffff:"):
+        host = host[7:]
+    return host in {"localhost", "127.0.0.1", "::1"} or host.startswith("127.")
+
+
+def _is_local_connection(connection) -> bool:
+    try:
+        return _is_local_address(connection.remote_address)
+    except Exception:
+        return False
+
 
 def _validate_field(value: str, field_name: str, pattern=None) -> str:
     if not isinstance(value, str):
@@ -76,6 +103,7 @@ class WebSocketServer:
         self.is_capturing = False
         self.is_shutting_down = False
         self.capture_lock = asyncio.Lock()
+        self.camera_lock = asyncio.Lock()
         self.preview_task = None
         self.auto_capture_enabled = False
         self.auto_capture_options = {}
@@ -187,10 +215,22 @@ class WebSocketServer:
     async def _start_auto_capture(self, data: dict = None):
         data = data or {}
         self.auto_capture_options = data.get("options") or {}
-        self.auto_required_frames = max(1, int(data.get("stable_frames", 10)))
-        self.auto_max_distance_delta_mm = max(1.0, float(data.get("max_distance_delta_mm", 30.0)))
-        self.auto_target_count = max(1, int(data.get("capture_count", 3)))
-        self.auto_capture_interval_sec = max(0.1, float(data.get("capture_interval_sec", 1.0)))
+        self.auto_required_frames = min(
+            _MAX_AUTO_STABLE_FRAMES,
+            max(1, int(data.get("stable_frames", 10)))
+        )
+        self.auto_max_distance_delta_mm = min(
+            _MAX_AUTO_DISTANCE_DELTA_MM,
+            max(1.0, float(data.get("max_distance_delta_mm", 30.0)))
+        )
+        self.auto_target_count = min(
+            _MAX_AUTO_CAPTURE_COUNT,
+            max(1, int(data.get("capture_count", 3)))
+        )
+        self.auto_capture_interval_sec = min(
+            _MAX_AUTO_CAPTURE_INTERVAL_SEC,
+            max(0.1, float(data.get("capture_interval_sec", 1.0)))
+        )
         self.auto_capture_enabled = True
         self.auto_stable_distances = []
         self.auto_captured_count = 0
@@ -368,10 +408,85 @@ class WebSocketServer:
             "data": {"active": is_active}
         })
 
+    async def _send_camera_status(self, websocket=None, action: str = "status"):
+        status = self.camera.get_status()
+        status["action"] = action
+        message = {
+            "type": "camera_status",
+            "data": status
+        }
+        if websocket is not None and websocket not in self.clients:
+            try:
+                await websocket.send(json.dumps(message, ensure_ascii=False))
+            except Exception:
+                pass
+            return
+        await self._broadcast(message)
+
+    async def _handle_connect_camera(self, websocket=None, data: dict = None):
+        if self.capture_lock.locked():
+            await self._send_error(websocket, "正在采集中，请采集结束后再连接摄像头")
+            return
+
+        async with self.camera_lock:
+            data = data or {}
+            ok = self.camera.connect(
+                width=self.settings.camera.width,
+                height=self.settings.camera.height,
+                fps=self.settings.camera.fps,
+                params_file=self.settings.camera.params_file,
+                device_id=data.get("device_id", "")
+            )
+            if ok:
+                logger.info("Camera connected by client request")
+            else:
+                logger.warning(f"Camera connect failed: {self.camera.get_status().get('message')}")
+            await self._send_camera_status(websocket, action="connect")
+
+    async def _handle_disconnect_camera(self, websocket=None):
+        if self.capture_lock.locked():
+            await self._send_error(websocket, "正在采集中，请采集结束后再断开摄像头")
+            return
+
+        async with self.camera_lock:
+            self.camera.release()
+            self.depth_analyzer.reset()
+            await self._broadcast({
+                "type": "preview_frame",
+                "data": {
+                    "color": "",
+                    "depth": "",
+                    "distance": {
+                        "distance_mm": 0,
+                        "status": DistanceStatus.NO_DATA.value,
+                        "message": "摄像头未连接",
+                        "confidence": 0
+                    }
+                }
+            })
+            await self._send_camera_status(websocket, action="disconnect")
+
     async def _process_http_request(self, connection, request):
         if request.path == "/auth-token":
+            origin = request.headers.get("Origin")
+            if origin:
+                if origin not in _ALLOWED_AUTH_ORIGINS:
+                    body = b"Forbidden origin"
+                    headers = Headers([("Content-Type", "text/plain; charset=utf-8")])
+                    return Response(403, "Forbidden", headers, body)
+                cors_headers = [
+                    ("Access-Control-Allow-Origin", origin),
+                    ("Vary", "Origin"),
+                ]
+            elif not _is_local_connection(connection):
+                body = b"Forbidden"
+                headers = Headers([("Content-Type", "text/plain; charset=utf-8")])
+                return Response(403, "Forbidden", headers, body)
+            else:
+                cors_headers = []
+
             body = json.dumps({"token": self.auth_token}).encode("utf-8")
-            headers = Headers([("Content-Type", "application/json"), ("Access-Control-Allow-Origin", "*")])
+            headers = Headers([("Content-Type", "application/json"), *cors_headers])
             return Response(200, "OK", headers, body)
         return None
 
@@ -403,6 +518,11 @@ class WebSocketServer:
 
         self.clients.add(websocket)
         logger.info(f"Client connected: {remote}")
+        try:
+            await websocket.send(json.dumps({"type": "auth_success"}, ensure_ascii=False))
+        except Exception:
+            self.clients.discard(websocket)
+            return
 
         try:
             async for message in websocket:
@@ -440,6 +560,12 @@ class WebSocketServer:
             await self._stop_preview()
         elif msg_type == "capture_single":
             await self._handle_capture(data.get("options"))
+        elif msg_type == "connect_camera":
+            await self._handle_connect_camera(websocket, data)
+        elif msg_type == "disconnect_camera":
+            await self._handle_disconnect_camera(websocket)
+        elif msg_type == "get_camera_status":
+            await self._send_camera_status(websocket, action="status")
         elif msg_type == "start_auto_capture":
             await self._start_auto_capture(data)
         elif msg_type == "stop_auto_capture":
@@ -517,6 +643,9 @@ class WebSocketServer:
             else:
                 await self._send_error(websocket, f"Session not found: {session_name}")
         elif msg_type == "exit_app":
+            if not _is_local_connection(websocket):
+                await self._send_error(websocket, "exit_app is only allowed from localhost")
+                return
             logger.info("Exit command received from client")
             await self._broadcast({
                 "type": "exit_confirm",
@@ -557,33 +686,40 @@ class WebSocketServer:
                     continue
                 
                 frames = self.camera.get_frames()
-                if frames:
-                    color_preview = ""
-                    depth_preview = ""
-                    distance_data = None
+                color_preview = ""
+                depth_preview = ""
+                distance_data = None
 
-                    if frames.color is not None:
-                        color_preview = self.frame_processor.encode_preview_fast(frames.color, is_rgb=True)
+                if frames and frames.color is not None:
+                    color_preview = self.frame_processor.encode_preview_fast(frames.color, is_rgb=True)
 
-                    if frames.depth is not None:
-                        depth_preview = self.frame_processor.encode_depth_preview_fast(frames.depth, frames.depth_scale)
-                        distance_info = self.depth_analyzer.analyze_distance(frames.depth, depth_scale=frames.depth_scale)
-                        distance_data = {
-                            "distance_mm": distance_info.distance_mm,
-                            "status": distance_info.status.value,
-                            "message": distance_info.message,
-                            "confidence": distance_info.confidence
-                        }
-                        await self._update_auto_capture(distance_info)
+                if frames and frames.depth is not None:
+                    depth_preview = self.frame_processor.encode_depth_preview_fast(frames.depth, frames.depth_scale)
+                    distance_info = self.depth_analyzer.analyze_distance(frames.depth, depth_scale=frames.depth_scale)
+                    distance_data = {
+                        "distance_mm": distance_info.distance_mm,
+                        "status": distance_info.status.value,
+                        "message": distance_info.message,
+                        "confidence": distance_info.confidence
+                    }
+                    await self._update_auto_capture(distance_info)
+                else:
+                    await self._update_auto_capture(None)
+                    distance_data = {
+                        "distance_mm": 0,
+                        "status": DistanceStatus.NO_DATA.value,
+                        "message": self.camera.last_error or "摄像头未连接",
+                        "confidence": 0
+                    }
 
-                    await self._broadcast({
-                        "type": "preview_frame",
-                        "data": {
-                            "color": color_preview,
-                            "depth": depth_preview,
-                            "distance": distance_data
-                        }
-                    })
+                await self._broadcast({
+                    "type": "preview_frame",
+                    "data": {
+                        "color": color_preview,
+                        "depth": depth_preview,
+                        "distance": distance_data
+                    }
+                })
 
                 elapsed = time.time() - start_time
                 target_interval = 1.0 / self.settings.gui.preview_fps
@@ -620,19 +756,12 @@ class WebSocketServer:
             with open(token_file, 'w') as f:
                 f.write(self.auth_token)
 
-            camera_ok = self.camera.initialize(
+            camera_ok = self.camera.connect(
                 width=self.settings.camera.width,
                 height=self.settings.camera.height,
                 fps=self.settings.camera.fps,
                 params_file=self.settings.camera.params_file
             )
-
-            if camera_ok:
-                if not self.camera.start_stream():
-                    logger.warning("Failed to start camera stream, using mock mode")
-                    camera_ok = False
-            else:
-                logger.warning("Failed to initialize camera, using mock mode")
 
             self._ws_server = await websockets.serve(
                 self._handle_client, self.host, self.port,
@@ -643,7 +772,7 @@ class WebSocketServer:
             if camera_ok:
                 logger.info("Camera ready")
             else:
-                logger.warning("Running in MOCK mode (no real camera)")
+                logger.warning(f"Camera not connected: {self.camera.get_status().get('message')}")
 
             if self.voice_synthesizer:
                 self.voice_synthesizer.speak("系统已启动", blocking=False)
@@ -679,24 +808,6 @@ class WebSocketServer:
     def get_auth_info(self) -> dict:
         return {"token": self.auth_token, "host": self.host, "port": self.port}
 
-    @staticmethod
-    def _kill_process_on_port(port: int):
-        import subprocess
-        try:
-            result = subprocess.run(
-                ["netstat", "-ano"], capture_output=True, text=True, timeout=5
-            )
-            for line in result.stdout.splitlines():
-                if f":{port}" in line and "LISTENING" in line:
-                    parts = line.split()
-                    pid = parts[-1]
-                    if pid.isdigit():
-                        subprocess.run(["taskkill", "/F", "/PID", pid],
-                                       capture_output=True, timeout=5)
-                        logger.info(f"Killed process {pid} on port {port}")
-        except Exception as e:
-            logger.debug(f"Failed to kill process on port {port}: {e}")
-
     def _shutdown(self):
         logger.info("Shutting down application...")
         self.is_shutting_down = True
@@ -706,8 +817,6 @@ class WebSocketServer:
             self.stop()
         except Exception:
             pass
-
-        self._kill_process_on_port(3000)
 
         import os
         os._exit(0)

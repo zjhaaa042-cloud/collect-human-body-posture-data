@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Space, Tag, Typography } from 'antd';
 import {
   AudioOutlined,
+  AudioMutedOutlined,
   SaveOutlined,
   FolderOutlined,
   CheckCircleOutlined,
@@ -58,6 +59,10 @@ const VoiceIndicator = ({ active }) => {
 };
 
 const StatusBar = ({ connected, captureCount, sessionId, voiceActive }) => {
+  const voiceIcon = connected ? <AudioOutlined /> : <AudioMutedOutlined />;
+  const voiceColor = !connected ? 'default' : (voiceActive ? 'processing' : 'success');
+  const voiceText = !connected ? '语音未连接' : (voiceActive ? '正在聆听...' : '语音就绪');
+
   return (
     <div className="status-bar">
       <div className="status-left">
@@ -77,11 +82,11 @@ const StatusBar = ({ connected, captureCount, sessionId, voiceActive }) => {
           <div className="status-item status-voice-section">
             <VoiceIndicator active={voiceActive} />
             <Tag
-              icon={voiceActive ? <AudioOutlined /> : <CheckCircleOutlined />}
-              color={voiceActive ? 'processing' : 'success'}
+              icon={voiceIcon}
+              color={voiceColor}
               bordered={false}
             >
-              {voiceActive ? '正在聆听...' : '语音就绪'}
+              {voiceText}
             </Tag>
           </div>
 

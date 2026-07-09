@@ -49,7 +49,7 @@ const DistanceIndicator = ({ distanceInfo }) => {
   );
 };
 
-const PreviewPanel = ({ previewData, distanceInfo, isCapturing }) => {
+const PreviewPanel = ({ previewData, distanceInfo, isCapturing, cameraStatus }) => {
   const panelRef = useRef(null);
 
   const handleFullscreen = useCallback(() => {
@@ -68,6 +68,10 @@ const PreviewPanel = ({ previewData, distanceInfo, isCapturing }) => {
   const depthSrc = previewData?.depth
     ? `data:image/jpeg;base64,${previewData.depth}`
     : null;
+  const cameraConnected = Boolean(cameraStatus?.connected);
+  const placeholderText = cameraConnected
+    ? '等待画面...'
+    : (cameraStatus?.message || '摄像头未连接，请在右侧点击连接摄像头');
 
   return (
     <div className="preview-panel" ref={panelRef}>
@@ -96,7 +100,7 @@ const PreviewPanel = ({ previewData, distanceInfo, isCapturing }) => {
             ) : (
               <div className="preview-placeholder">
                 <VideoCameraOutlined />
-                <Text type="secondary">等待画面...</Text>
+                <Text type="secondary">{placeholderText}</Text>
               </div>
             )}
             {isCapturing && (
@@ -116,7 +120,7 @@ const PreviewPanel = ({ previewData, distanceInfo, isCapturing }) => {
             ) : (
               <div className="preview-placeholder">
                 <VideoCameraOutlined />
-                <Text type="secondary">等待画面...</Text>
+                <Text type="secondary">{placeholderText}</Text>
               </div>
             )}
           </div>

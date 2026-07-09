@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, Button, Checkbox, Space, Typography, Tag, List, Input, Select, Tooltip, Switch, Progress } from 'antd';
 import {
   CameraOutlined,
@@ -9,7 +9,8 @@ import {
   ReloadOutlined,
   DatabaseOutlined,
   CheckCircleOutlined,
-  ThunderboltOutlined
+  ThunderboltOutlined,
+  ApiOutlined
 } from '@ant-design/icons';
 import './ControlPanel.css';
 
@@ -32,8 +33,13 @@ const ControlPanel = ({
   sessionId,
   sessions = [],
   voiceActive,
+  cameraStatus,
+  isCameraConnecting,
   autoCaptureStatus,
   onCapture,
+  onConnectCamera,
+  onDisconnectCamera,
+  onRefreshCameraStatus,
   onStartAutoCapture,
   onStopAutoCapture,
   onCreateSession,
@@ -46,6 +52,18 @@ const ControlPanel = ({
   const [saveDepth, setSaveDepth] = useState(true);
   const [savePointcloud, setSavePointcloud] = useState(true);
   const [sessionName, setSessionName] = useState('');
+  const [selectedCameraId, setSelectedCameraId] = useState('');
+
+  const cameraDevices = cameraStatus?.devices || [];
+
+  useEffect(() => {
+    const hasSelectedDevice = cameraDevices.some(device => device.id === selectedCameraId);
+    if (cameraDevices.length > 0 && (!selectedCameraId || !hasSelectedDevice)) {
+      setSelectedCameraId(cameraDevices[0].id);
+    } else if (cameraDevices.length === 0 && selectedCameraId) {
+      setSelectedCameraId('');
+    }
+  }, [cameraDevices, selectedCameraId]);
 
   const handleCreateSession = () => {
     const name = sessionName.trim() || undefined;
@@ -89,6 +107,18 @@ const ControlPanel = ({
     ? (distanceInfo.distance_mm / 1000).toFixed(2)
     : '--';
   const currentStatusColor = statusColors[distanceStatus] || statusColors.no_data;
+  const cameraConnected = Boolean(cameraStatus?.connected);
+  const cameraDevicePresent = cameraConnected || Boolean(cameraStatus?.device_present);
+  const cameraStatusColor = cameraConnected ? 'success' : (cameraDevicePresent ? 'warning' : 'default');
+  const cameraStatusText = cameraStatus?.message || '摄像头状态未知';
+  const cameraName = cameraStatus?.device?.name || (cameraConnected ? '已连接的奥比中光设备' : '未检测到设备');
+  const cameraOptions = cameraDevices.map((device) => {
+    const detail = device.serial_number || device.uid || `设备 ${device.index + 1}`;
+    return {
+      value: device.id,
+      label: `${device.name || 'Orbbec Camera'} · ${detail}`
+    };
+  });
   const autoEnabled = Boolean(autoCaptureStatus?.enabled);
   const stableFrames = autoCaptureStatus?.stable_frames || 0;
   const requiredFrames = autoCaptureStatus?.required_frames || 10;
@@ -126,6 +156,61 @@ const ControlPanel = ({
               {distanceInfo?.message || '等待距离数据...'}
             </Tag>
           </div>
+        </div>
+
+        <div className="control-section camera-section">
+          <div className="section-header-row">
+            <Title level={5}>
+              <Space>
+                <ApiOutlined />
+                摄像头连接
+              </Space>
+            </Title>
+            <Tag color={cameraStatusColor} className="camera-status-tag">
+              {cameraConnected ? '已连接' : (cameraDevicePresent ? '待连接' : '未连接')}
+            </Tag>
+          </div>
+          <div className="camera-status-box">
+            <Text className="camera-device-name">{cameraName}</Text>
+            <Text type="secondary" className="camera-status-message">{cameraStatusText}</Text>
+          </div>
+          <Select
+            size="small"
+            className="camera-device-select"
+            placeholder="选择摄像头设备"
+            value={selectedCameraId || undefined}
+            options={cameraOptions}
+            onChange={setSelectedCameraId}
+            disabled={!connected || cameraConnected || cameraOptions.length === 0}
+            notFoundContent="未检测到可选摄像头"
+          />
+          <Space.Compact className="camera-actions">
+            <Button
+              type="primary"
+              size="small"
+              loading={isCameraConnecting}
+              disabled={!connected || cameraConnected || cameraOptions.length === 0}
+              onClick={() => onConnectCamera(selectedCameraId)}
+            >
+              连接摄像头
+            </Button>
+            <Button
+              size="small"
+              disabled={!connected || !cameraConnected}
+              onClick={onDisconnectCamera}
+            >
+              断开
+            </Button>
+            <Tooltip title="刷新摄像头状态">
+              <Button
+                icon={<ReloadOutlined />}
+                size="small"
+                disabled={!connected}
+                onClick={onRefreshCameraStatus}
+                aria-label="刷新摄像头状态"
+              />
+            </Tooltip>
+          </Space.Compact>
         </div>
 
         <div className="control-section">
@@ -260,12 +345,14 @@ const ControlPanel = ({
             <div className={`control-voice-indicator ${voiceActive ? 'active' : ''}`}>
               {voiceActive ? (
                 <AudioOutlined className="control-voice-mic-icon active" />
+              ) : connected ? (
+                <AudioOutlined className="control-voice-mic-icon ready" />
               ) : (
                 <AudioMutedOutlined className="control-voice-mic-icon" />
               )}
               <div>
                 <div className={`control-voice-status-text ${voiceActive ? 'active' : ''}`}>
-                  {voiceActive ? '正在接收语音...' : '等待语音输入'}
+                  {voiceActive ? '正在接收语音...' : (connected ? '等待语音输入' : '语音未连接')}
                 </div>
                 <Text type="secondary" className="control-voice-meta">
                   {connected ? '语音识别已启用' : '未连接服务器'}

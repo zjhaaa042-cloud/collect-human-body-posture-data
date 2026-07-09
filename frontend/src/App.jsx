@@ -30,6 +30,16 @@ function AppContent() {
   const [voiceActive, setVoiceActive] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [cameraStatus, setCameraStatus] = useState({
+    sdk_available: false,
+    device_present: false,
+    connected: false,
+    initialized: false,
+    streaming: false,
+    device: {},
+    message: '摄像头状态未知'
+  });
+  const [isCameraConnecting, setIsCameraConnecting] = useState(false);
   const [autoCaptureStatus, setAutoCaptureStatus] = useState({
     enabled: false,
     stable_frames: 0,
@@ -94,27 +104,37 @@ function AppContent() {
     if (!shouldReconnectRef.current) return;
 
     await fetchAuthToken();
+    if (!authTokenRef.current) {
+      setConnected(false);
+      message.warning('正在等待后端鉴权令牌...');
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+      reconnectTimerRef.current = setTimeout(connectWebSocket, 3000);
+      return;
+    }
 
     try {
       const ws = new WebSocket(WS_URL);
 
       ws.onopen = () => {
         const token = authTokenRef.current;
-        if (token) {
-          ws.send(JSON.stringify({ type: 'auth', token }));
-        }
-        setConnected(true);
-        setIsCapturing(false);
-        message.success('已连接到采集系统');
-        ws.send(JSON.stringify({ type: 'start_preview' }));
-        ws.send(JSON.stringify({ type: 'get_sessions' }));
-        ws.send(JSON.stringify({ type: 'get_captures' }));
+        ws.send(JSON.stringify({ type: 'auth', token }));
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           switch (data.type) {
+            case 'auth_success':
+              setConnected(true);
+              setIsCapturing(false);
+              message.success('已连接到采集系统');
+              ws.send(JSON.stringify({ type: 'start_preview' }));
+              ws.send(JSON.stringify({ type: 'get_camera_status' }));
+              ws.send(JSON.stringify({ type: 'get_sessions' }));
+              ws.send(JSON.stringify({ type: 'get_captures' }));
+              break;
             case 'preview_frame':
               setPreviewData(data.data);
               if (data.data.distance) {
@@ -123,6 +143,28 @@ function AppContent() {
               break;
             case 'distance_update':
               setDistanceInfo(data.data);
+              break;
+            case 'camera_status':
+              setCameraStatus(data.data);
+              setIsCameraConnecting(false);
+              if (!data.data.connected) {
+                setPreviewData(null);
+                setDistanceInfo({
+                  distance_mm: 0,
+                  status: 'no_data',
+                  message: data.data.message || '摄像头未连接',
+                  confidence: 0
+                });
+              }
+              if (data.data.action === 'connect') {
+                if (data.data.connected) {
+                  message.success(data.data.message || '摄像头连接成功');
+                } else {
+                  message.warning(data.data.message || '摄像头连接失败');
+                }
+              } else if (data.data.action === 'disconnect') {
+                message.info('摄像头已断开');
+              }
               break;
             case 'capture_result':
               setCaptureResult(data.data);
@@ -180,6 +222,7 @@ function AppContent() {
             case 'error':
               message.error(data.message || '服务端处理失败');
               setIsCapturing(false);
+              setIsCameraConnecting(false);
               break;
             default:
               break;
@@ -258,6 +301,23 @@ function AppContent() {
 
   const handleStopAutoCapture = useCallback(() => {
     sendCommand('stop_auto_capture');
+  }, [sendCommand]);
+
+  const handleConnectCamera = useCallback((deviceId) => {
+    if (!connected) {
+      message.warning('未连接到服务器');
+      return;
+    }
+    setIsCameraConnecting(true);
+    sendCommand('connect_camera', { device_id: deviceId || '' });
+  }, [sendCommand, connected, message]);
+
+  const handleDisconnectCamera = useCallback(() => {
+    sendCommand('disconnect_camera');
+  }, [sendCommand]);
+
+  const handleRefreshCameraStatus = useCallback(() => {
+    sendCommand('get_camera_status');
   }, [sendCommand]);
 
   const handleCreateSession = useCallback((sessionName) => {
@@ -349,6 +409,7 @@ function AppContent() {
               previewData={previewData}
               distanceInfo={distanceInfo}
               isCapturing={isCapturing}
+              cameraStatus={cameraStatus}
             />
           </div>
 
@@ -365,8 +426,13 @@ function AppContent() {
               sessionId={sessionId}
               sessions={sessions}
               voiceActive={voiceActive}
+              cameraStatus={cameraStatus}
+              isCameraConnecting={isCameraConnecting}
               autoCaptureStatus={autoCaptureStatus}
               onCapture={handleCapture}
+              onConnectCamera={handleConnectCamera}
+              onDisconnectCamera={handleDisconnectCamera}
+              onRefreshCameraStatus={handleRefreshCameraStatus}
               onStartAutoCapture={handleStartAutoCapture}
               onStopAutoCapture={handleStopAutoCapture}
               onCreateSession={handleCreateSession}
