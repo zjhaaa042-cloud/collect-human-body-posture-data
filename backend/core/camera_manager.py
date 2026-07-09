@@ -1,4 +1,5 @@
 import json
+import cv2
 import numpy as np
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,6 +77,107 @@ class CameraManager:
         self.is_initialized = False
         self.is_streaming = False
         self.frame_count = 0
+
+    @staticmethod
+    def _frame_format(frame):
+        try:
+            return frame.get_format()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _frame_data(frame) -> np.ndarray:
+        return np.frombuffer(frame.get_data(), dtype=np.uint8)
+
+    def _decode_color_frame(self, color_frame) -> Optional[np.ndarray]:
+        try:
+            width = color_frame.get_width()
+            height = color_frame.get_height()
+            frame_format = self._frame_format(color_frame)
+            data = self._frame_data(color_frame)
+            size = data.size
+
+            if frame_format == OBFormat.MJPG or size < width * height:
+                decoded = cv2.imdecode(data, cv2.IMREAD_COLOR)
+                if decoded is None:
+                    logger.warning(f"Failed to decode compressed color frame: format={frame_format}, bytes={size}")
+                    return None
+                return cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
+
+            if frame_format == OBFormat.RGB:
+                return data[:width * height * 3].reshape((height, width, 3))
+
+            if frame_format == OBFormat.BGR:
+                bgr = data[:width * height * 3].reshape((height, width, 3))
+                return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+            if frame_format == OBFormat.RGBA:
+                rgba = data[:width * height * 4].reshape((height, width, 4))
+                return cv2.cvtColor(rgba, cv2.COLOR_RGBA2RGB)
+
+            if frame_format == OBFormat.BGRA:
+                bgra = data[:width * height * 4].reshape((height, width, 4))
+                return cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGB)
+
+            if frame_format in (OBFormat.YUYV, OBFormat.YUY2):
+                yuyv = data[:width * height * 2].reshape((height, width, 2))
+                return cv2.cvtColor(yuyv, cv2.COLOR_YUV2RGB_YUY2)
+
+            if frame_format == OBFormat.UYVY:
+                uyvy = data[:width * height * 2].reshape((height, width, 2))
+                return cv2.cvtColor(uyvy, cv2.COLOR_YUV2RGB_UYVY)
+
+            if frame_format == OBFormat.NV12:
+                nv12 = data[:width * height * 3 // 2].reshape((height * 3 // 2, width))
+                return cv2.cvtColor(nv12, cv2.COLOR_YUV2RGB_NV12)
+
+            if frame_format == OBFormat.NV21:
+                nv21 = data[:width * height * 3 // 2].reshape((height * 3 // 2, width))
+                return cv2.cvtColor(nv21, cv2.COLOR_YUV2RGB_NV21)
+
+            if frame_format == OBFormat.I420:
+                i420 = data[:width * height * 3 // 2].reshape((height * 3 // 2, width))
+                return cv2.cvtColor(i420, cv2.COLOR_YUV2RGB_I420)
+
+            if frame_format == OBFormat.YV12:
+                yv12 = data[:width * height * 3 // 2].reshape((height * 3 // 2, width))
+                return cv2.cvtColor(yv12, cv2.COLOR_YUV2RGB_YV12)
+
+            if frame_format == OBFormat.Y8 or size == width * height:
+                gray = data[:width * height].reshape((height, width))
+                return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+
+            if size == width * height * 3:
+                logger.warning(f"Unknown color frame format {frame_format}; treating data as RGB")
+                return data[:width * height * 3].reshape((height, width, 3))
+
+            logger.warning(f"Unsupported color frame format: {frame_format}, bytes={size}, size={width}x{height}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to decode color frame: {e}")
+            return None
+
+    def _decode_depth_frame(self, depth_frame) -> Optional[np.ndarray]:
+        try:
+            width = depth_frame.get_width()
+            height = depth_frame.get_height()
+            frame_format = self._frame_format(depth_frame)
+            data = self._frame_data(depth_frame)
+            expected_u16 = width * height * 2
+
+            if frame_format in (OBFormat.Y16, OBFormat.Z16, OBFormat.RW16) or data.size >= expected_u16:
+                depth = np.frombuffer(data[:expected_u16].tobytes(), dtype=np.uint16)
+                return depth.reshape((height, width))
+
+            if frame_format == OBFormat.Y8 or data.size >= width * height:
+                depth8 = data[:width * height].reshape((height, width))
+                return depth8.astype(np.uint16)
+
+            logger.warning(f"Unsupported depth frame format: {frame_format}, bytes={data.size}, size={width}x{height}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to decode depth frame: {e}")
+            return None
 
     def load_camera_params(self, params_file: str) -> bool:
         try:
@@ -213,20 +315,28 @@ class CameraManager:
 
                 color_data = None
                 if color_frame:
-                    w = color_frame.get_width()
-                    h = color_frame.get_height()
-                    color_data = np.frombuffer(color_frame.get_data(), dtype=np.uint8).reshape((h, w, 3))
+                    if self.frame_count == 0:
+                        logger.info(
+                            f"Color frame: format={self._frame_format(color_frame)}, "
+                            f"size={color_frame.get_width()}x{color_frame.get_height()}, "
+                            f"bytes={self._frame_data(color_frame).size}"
+                        )
+                    color_data = self._decode_color_frame(color_frame)
 
                 depth_data = None
                 depth_scale = 1.0
                 if depth_frame:
-                    w = depth_frame.get_width()
-                    h = depth_frame.get_height()
                     raw_scale = depth_frame.get_depth_scale()
-                    if raw_scale > 0.001:
+                    if raw_scale > 0:
                         depth_scale = raw_scale
-                    depth_data = np.frombuffer(depth_frame.get_data(), dtype=np.uint16).reshape((h, w))
                     if self.frame_count == 0:
+                        logger.info(
+                            f"Depth frame: format={self._frame_format(depth_frame)}, "
+                            f"size={depth_frame.get_width()}x{depth_frame.get_height()}, "
+                            f"bytes={self._frame_data(depth_frame).size}"
+                        )
+                    depth_data = self._decode_depth_frame(depth_frame)
+                    if depth_data is not None and self.frame_count == 0:
                         valid = depth_data[depth_data > 0]
                         logger.info(f"Depth scale: raw={raw_scale}, used={depth_scale}, raw_range={depth_data.min()}-{depth_data.max()}, valid_count={len(valid)}")
                         if len(valid) > 0:
@@ -303,10 +413,11 @@ class CameraManager:
                 depth_frame = frames.get_depth_frame()
                 if not depth_frame:
                     return 0.0
-                w = depth_frame.get_width()
-                h = depth_frame.get_height()
                 scale = depth_frame.get_depth_scale()
-                data = np.frombuffer(depth_frame.get_data(), dtype=np.uint16).reshape((h, w))
+                data = self._decode_depth_frame(depth_frame)
+                if data is None:
+                    return 0.0
+                h, w = data.shape
                 return float(data[h // 2, w // 2]) * scale
             return 0.0
         except Exception as e:
