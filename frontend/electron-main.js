@@ -9,7 +9,7 @@ function startReactServer() {
   return new Promise((resolve, reject) => {
     const frontendPath = __dirname;
     const isWin = process.platform === 'win32';
-    reactProcess = spawn(isWin ? 'npm.cmd' : 'npm', ['start'], {
+    reactProcess = spawn(isWin ? 'npm.cmd' : 'npm', ['run', 'start:no-open'], {
       cwd: frontendPath,
       env: { ...process.env, PORT: '3000', BROWSER: 'none' },
       shell: false
@@ -17,7 +17,7 @@ function startReactServer() {
 
     reactProcess.stdout.on('data', (data) => {
       console.log(`React: ${data}`);
-      if (data.includes('Compiled successfully') || data.includes('webpack compiled')) {
+      if (data.includes('Local:') || data.includes('ready in')) {
         resolve();
       }
     });
