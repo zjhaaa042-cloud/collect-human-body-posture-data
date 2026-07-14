@@ -17,6 +17,5 @@
 	"depth_exposure_time": 3000,
 	"depth_gain": 16,
 	"laser_power_level": 6,
-	"laser_state": 1,
 	"target_mean_intensity": 60
 }

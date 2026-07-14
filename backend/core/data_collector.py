@@ -35,7 +35,9 @@ class CaptureResult:
     rgb_path: Optional[str] = None
     depth_path: Optional[str] = None
     pointcloud_path: Optional[str] = None
+    pose_path: Optional[str] = None
     distance_mm: float = 0.0
+    quality: Optional[dict] = None
     success: bool = True
     error: Optional[str] = None
 
@@ -95,9 +97,11 @@ class DataCollector:
             (self.current_session / "rgb").mkdir(exist_ok=True)
             (self.current_session / "depth").mkdir(exist_ok=True)
             (self.current_session / "pointcloud").mkdir(exist_ok=True)
+            (self.current_session / "pose").mkdir(exist_ok=True)
 
             self.capture_count = 0
             self.session_metadata = {
+                "format_version": 2,
                 "session_id": session_name,
                 "created_at": datetime.now().isoformat(),
                 "status": "active",
@@ -117,7 +121,16 @@ class DataCollector:
             logger.error(f"Failed to create session: {e}")
             raise
 
-    def capture(self, frame_data, point_cloud=None, config: Optional[CaptureConfig] = None, camera_intrinsics=None) -> CaptureResult:
+    def capture(
+        self,
+        frame_data,
+        point_cloud=None,
+        config: Optional[CaptureConfig] = None,
+        camera_intrinsics=None,
+        quality_snapshot: Optional[dict] = None,
+        pose_metadata: Optional[dict] = None,
+        orientation_metadata: Optional[dict] = None,
+    ) -> CaptureResult:
         try:
             if self.current_session is None or not self.current_session.exists():
                 self.create_session()
@@ -150,7 +163,9 @@ class DataCollector:
             result = CaptureResult(
                 session_id=self.session_id,
                 capture_id=capture_id,
-                timestamp=datetime.now().isoformat()
+                timestamp=datetime.now().isoformat(),
+                distance_mm=float((quality_snapshot or {}).get("distance_mm", 0.0)),
+                quality=quality_snapshot,
             )
 
             if config.save_rgb and frame_data.color is not None:
@@ -193,6 +208,14 @@ class DataCollector:
                 self._save_ply(point_cloud.points, point_cloud.colors, str(pc_path), binary=config.pointcloud_binary)
                 result.pointcloud_path = f"pointcloud/{pc_filename}"
 
+            if pose_metadata:
+                (self.current_session / "pose").mkdir(exist_ok=True)
+                pose_filename = f"pose_{capture_id}_{timestamp_str}.json"
+                pose_path = self.current_session / "pose" / pose_filename
+                with open(pose_path, "w", encoding="utf-8") as pose_file:
+                    json.dump(pose_metadata, pose_file, ensure_ascii=False, indent=2)
+                result.pose_path = f"pose/{pose_filename}"
+
             if camera_intrinsics is not None:
                 self.session_metadata["camera"] = {
                     "fx": camera_intrinsics.fx,
@@ -200,8 +223,11 @@ class DataCollector:
                     "cx": camera_intrinsics.cx,
                     "cy": camera_intrinsics.cy,
                     "width": camera_intrinsics.width,
-                    "height": camera_intrinsics.height
+                    "height": camera_intrinsics.height,
+                    "orientation": getattr(camera_intrinsics, "orientation", "landscape"),
                 }
+            if orientation_metadata:
+                self.session_metadata["processing"] = orientation_metadata
 
             self.capture_count = next_count
             self.session_metadata["statistics"]["total_captures"] += 1
@@ -283,6 +309,7 @@ class DataCollector:
                 # Create new metadata for existing session
                 self.capture_count = 0
                 self.session_metadata = {
+                    "format_version": 1,
                     "session_id": session_name,
                     "created_at": datetime.now().isoformat(),
                     "status": "active",

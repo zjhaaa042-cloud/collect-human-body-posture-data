@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 cd /d "%~dp0"
 
 echo.
@@ -22,11 +23,16 @@ if /i not "%PYTHON_CMD%"=="python" (
 )
 
 if not defined NEED_INSTALL (
-  "%PYTHON_CMD%" -c "import pydantic, websockets, cv2, numpy, loguru" >nul 2>nul
+  "%PYTHON_CMD%" -c "import pydantic, websockets, cv2, numpy, loguru, mediapipe" >nul 2>nul
   if errorlevel 1 (
     echo [WARN] Backend Python dependencies are incomplete.
     set "NEED_INSTALL=1"
   )
+)
+
+if not exist "models\pose_landmarker_full.task" (
+  echo [WARN] MediaPipe pose model was not found.
+  set "NEED_INSTALL=1"
 )
 
 if not exist "frontend\node_modules\.bin\vite.cmd" (
@@ -82,18 +88,12 @@ if defined NEED_INSTALL (
   )
 )
 
-echo [1/2] Starting backend...
-start "Backend" /min cmd /c "%PYTHON_CMD% run_backend.py"
-
-echo [2/2] Waiting 5 seconds...
-timeout /t 5 /nobreak >nul
-
-echo [3/2] Starting frontend...
-start "Frontend" /min cmd /c "cd frontend && npm start"
+echo Starting managed backend and frontend...
+start "Body Posture Collector" /min "%PYTHON_CMD%" run_all.py
 
 echo.
-echo Done! Both services are starting...
-echo Backend and frontend windows are minimized.
+echo Done! Both services are starting under one process manager...
+echo Closing the frontend will also stop backend and Vite after 5 seconds.
 echo.
 echo Backend:  ws://localhost:8765
 echo Frontend: http://localhost:3000

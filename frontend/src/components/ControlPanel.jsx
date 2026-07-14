@@ -21,7 +21,10 @@ const statusColors = {
   too_close: '#C84A4A',
   too_far: '#C58A12',
   no_data: '#8796A1',
-  no_human: '#8796A1'
+  no_human: '#8796A1',
+  body_incomplete: '#C58A12',
+  quality_low: '#C58A12',
+  unstable: '#2F6F9F'
 };
 
 const ControlPanel = ({
@@ -40,6 +43,7 @@ const ControlPanel = ({
   onConnectCamera,
   onDisconnectCamera,
   onRefreshCameraStatus,
+  onSetCameraOrientation,
   onStartAutoCapture,
   onStopAutoCapture,
   onCreateSession,
@@ -125,6 +129,9 @@ const ControlPanel = ({
   const autoCaptured = autoCaptureStatus?.captured || 0;
   const autoTarget = autoCaptureStatus?.target_count || 3;
   const stablePercent = Math.min(Math.round((stableFrames / requiredFrames) * 100), 100);
+  const quality = distanceInfo?.capture_quality || {};
+  const qualityScore = Math.round(quality.score || 0);
+  const qualityReady = Boolean(quality.ready);
 
   const distancePercent = distanceInfo?.distance_mm
     ? Math.min(Math.max((distanceInfo.distance_mm / 1000 / 2.0) * 100, 0), 100)
@@ -156,6 +163,21 @@ const ControlPanel = ({
               {distanceInfo?.message || '等待距离数据...'}
             </Tag>
           </div>
+          <div className="capture-quality-summary">
+            <div className="section-header-row">
+              <Text strong>综合采集质量</Text>
+              <Tag color={qualityReady ? 'success' : 'warning'}>
+                {qualityReady ? '可以采集' : `${qualityScore} 分`}
+              </Tag>
+            </div>
+            <Progress percent={qualityScore} size="small" status={qualityReady ? 'success' : 'active'} />
+            <Text type="secondary">{quality.recommended_action || '等待人体质量分析'}</Text>
+            {(quality.reasons || []).length > 0 && (
+              <div className="quality-reasons">
+                {(quality.reasons || []).slice(0, 3).map(reason => <Tag key={reason}>{reason}</Tag>)}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="control-section camera-section">
@@ -183,6 +205,18 @@ const ControlPanel = ({
             onChange={setSelectedCameraId}
             disabled={!connected || cameraConnected || cameraOptions.length === 0}
             notFoundContent="未检测到可选摄像头"
+          />
+          <Select
+            size="small"
+            className="camera-device-select"
+            value={cameraStatus?.orientation || 'portrait_cw'}
+            onChange={onSetCameraOrientation}
+            disabled={!connected}
+            options={[
+              { value: 'portrait_cw', label: '竖装－顺时针转正' },
+              { value: 'portrait_ccw', label: '竖装－逆时针转正' },
+              { value: 'landscape', label: '横装－不旋转' }
+            ]}
           />
           <Space.Compact className="camera-actions">
             <Button
@@ -290,7 +324,7 @@ const ControlPanel = ({
             </Title>
             <Switch
               checked={autoEnabled}
-              disabled={!connected}
+              disabled={!connected || quality.pose_available === false}
               onChange={handleAutoCaptureChange}
               size="small"
             />

@@ -15,6 +15,7 @@ frontend/build/
 # Data
 data/sessions/
 models/vosk-model-small-cn-0.22/
+models/pose_landmarker_full.task
 
 # Temp
 temp/

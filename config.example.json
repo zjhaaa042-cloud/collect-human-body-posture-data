@@ -4,6 +4,7 @@
     "height": 800,
     "fps": 30,
     "align_mode": "D2C_HW",
+    "orientation": "portrait_cw",
     "params_file": "config/camera_params.json"
   },
   "voice": {
@@ -28,9 +29,15 @@
     "max_color_brightness": 220
   },
   "distance": {
-    "target_distance_mm": 1000,
-    "tolerance_mm": 200,
-    "roi_ratio": 0.3
+    "target_distance_mm": 1500,
+    "tolerance_mm": 300,
+    "roi_ratio": 0.3,
+    "min_distance_mm": 1300,
+    "max_distance_mm": 2000,
+    "min_edge_margin": 0.04,
+    "min_body_depth_coverage": 0.75,
+    "min_quality_score": 80,
+    "pose_model_path": "models/pose_landmarker_full.task"
   },
   "gui": {
     "preview_fps": 20,

@@ -78,8 +78,15 @@ if errorlevel 1 (
 )
 call "!PYTHON_CMD!" -m pip install !PIP_SCOPE! --upgrade pip setuptools wheel
 if errorlevel 1 goto fail
+call "!PYTHON_CMD!" -m pip uninstall -y opencv-python >nul 2>nul
 call "!PYTHON_CMD!" -m pip install !PIP_SCOPE! -r requirements.txt
 if errorlevel 1 goto fail
+
+if not exist "models\pose_landmarker_full.task" (
+  echo Downloading MediaPipe full pose model...
+  powershell.exe -NoProfile -NonInteractive -Command "Invoke-WebRequest -Uri 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task' -OutFile 'models\pose_landmarker_full.task'"
+  if errorlevel 1 goto fail
+)
 
 echo.
 echo [4/5] Checking Node.js and npm versions...

@@ -15,7 +15,10 @@ const statusColors = {
   too_close: '#C84A4A',
   too_far: '#C58A12',
   no_data: '#8796A1',
-  no_human: '#8796A1'
+  no_human: '#8796A1',
+  body_incomplete: '#C58A12',
+  quality_low: '#C58A12',
+  unstable: '#2F6F9F'
 };
 
 const statusLabels = {
@@ -23,7 +26,10 @@ const statusLabels = {
   too_close: '太近',
   too_far: '太远',
   no_data: '无数据',
-  no_human: '未识别到人体'
+  no_human: '未识别到人体',
+  body_incomplete: '全身未完整入镜',
+  quality_low: '数据质量不足',
+  unstable: '请保持姿态稳定'
 };
 
 const DistanceIndicator = ({ distanceInfo }) => {
@@ -43,7 +49,9 @@ const DistanceIndicator = ({ distanceInfo }) => {
         </div>
       </div>
       <Tag color={color} className="distance-tag">
-        {label}
+        {distanceInfo.capture_quality?.score != null
+          ? `${label} · ${Math.round(distanceInfo.capture_quality.score)}分`
+          : label}
       </Tag>
     </div>
   );

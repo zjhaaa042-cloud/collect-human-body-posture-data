@@ -338,3 +338,24 @@
   color: var(--accent);
   font-size: 12px;
 }
+
+.capture-quality-summary {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.quality-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.quality-reasons .ant-tag {
+  margin: 0;
+  font-size: 10px;
+}

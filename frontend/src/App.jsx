@@ -56,6 +56,7 @@ function AppContent() {
   const [sessions, setSessions] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
   const [backendHost, setBackendHost] = useState(getDefaultBackendHost);
+  const [connectionVersion, setConnectionVersion] = useState(0);
   const [backendHostInput, setBackendHostInput] = useState(getDefaultBackendHost);
   const [backendModalOpen, setBackendModalOpen] = useState(false);
   const [backendCheck, setBackendCheck] = useState({
@@ -89,6 +90,8 @@ function AppContent() {
   const containerRef = useRef(null);
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
+  const reconnectAttemptRef = useRef(0);
+  const connectionSerialRef = useRef(0);
   const shouldReconnectRef = useRef(true);
   const authTokenRef = useRef(window.electronAPI?.getWsToken?.() || '');
   const wsUrl = `ws://${backendHost}`;
@@ -96,13 +99,20 @@ function AppContent() {
 
   const fetchAuthToken = useCallback(async () => {
     if (authTokenRef.current) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
     try {
-      const resp = await fetch(`${backendHttpUrl}/auth-token`);
+      const resp = await fetch(`${backendHttpUrl}/auth-token`, {
+        cache: 'no-store',
+        signal: controller.signal
+      });
       if (resp.ok) {
         const data = await resp.json();
         authTokenRef.current = data.token || '';
       }
     } catch {
+    } finally {
+      clearTimeout(timeout);
     }
   }, [backendHttpUrl]);
 
@@ -139,15 +149,19 @@ function AppContent() {
 
   const connectWebSocket = useCallback(async () => {
     if (!shouldReconnectRef.current) return;
+    const serial = ++connectionSerialRef.current;
 
     await fetchAuthToken();
+    if (!shouldReconnectRef.current || serial !== connectionSerialRef.current) return;
     if (!authTokenRef.current) {
       setConnected(false);
       message.warning('正在等待后端鉴权令牌...');
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
       }
-      reconnectTimerRef.current = setTimeout(connectWebSocket, 3000);
+      const delay = Math.min(1000 * (2 ** reconnectAttemptRef.current), 10000);
+      reconnectAttemptRef.current += 1;
+      reconnectTimerRef.current = setTimeout(connectWebSocket, delay);
       return;
     }
 
@@ -155,6 +169,10 @@ function AppContent() {
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
+        if (serial !== connectionSerialRef.current) {
+          ws.close();
+          return;
+        }
         const token = authTokenRef.current;
         ws.send(JSON.stringify({ type: 'auth', token }));
       };
@@ -164,6 +182,7 @@ function AppContent() {
           const data = JSON.parse(event.data);
           switch (data.type) {
             case 'auth_success':
+              reconnectAttemptRef.current = 0;
               setConnected(true);
               setIsCapturing(false);
               message.success('已连接到采集系统');
@@ -217,6 +236,23 @@ function AppContent() {
               }
               setIsCapturing(false);
               break;
+            case 'capture_quality_warning':
+              setIsCapturing(false);
+              modal.confirm({
+                title: '当前数据质量未达到推荐标准',
+                content: `${data.data.message}\n${(data.data.quality?.reasons || []).join('；')}`,
+                okText: '仍然采集',
+                cancelText: '返回调整',
+                okButtonProps: { danger: true },
+                onOk: () => {
+                  setIsCapturing(true);
+                  ws.send(JSON.stringify({
+                    type: 'capture_single',
+                    options: { ...(data.data.options || {}), force: true }
+                  }));
+                }
+              });
+              break;
             case 'capture_list':
               setCaptureCount(data.data.count);
               setCaptureHistory(
@@ -269,17 +305,22 @@ function AppContent() {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        if (wsRef.current !== ws || serial !== connectionSerialRef.current) return;
+        wsRef.current = null;
         setConnected(false);
         setIsCapturing(false);
         if (!shouldReconnectRef.current) {
           return;
         }
+        if (event.code === 4001) authTokenRef.current = '';
         message.warning('连接已断开，正在重连...');
         if (reconnectTimerRef.current) {
           clearTimeout(reconnectTimerRef.current);
         }
-        reconnectTimerRef.current = setTimeout(connectWebSocket, 3000);
+        const delay = Math.min(1000 * (2 ** reconnectAttemptRef.current), 10000);
+        reconnectAttemptRef.current += 1;
+        reconnectTimerRef.current = setTimeout(connectWebSocket, delay);
       };
 
       ws.onerror = (error) => {
@@ -291,13 +332,14 @@ function AppContent() {
       console.error('Failed to connect:', e);
       message.error('连接失败');
     }
-  }, [message, fetchAuthToken, wsUrl]);
+  }, [message, modal, fetchAuthToken, wsUrl]);
 
   useEffect(() => {
     shouldReconnectRef.current = true;
     connectWebSocket();
     return () => {
       shouldReconnectRef.current = false;
+      connectionSerialRef.current += 1;
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
       }
@@ -305,7 +347,7 @@ function AppContent() {
         wsRef.current.close();
       }
     };
-  }, [connectWebSocket]);
+  }, [connectWebSocket, connectionVersion]);
 
   const sendCommand = useCallback((type, data = {}) => {
     try {
@@ -326,16 +368,20 @@ function AppContent() {
     setBackendHostInput(normalized);
     authTokenRef.current = '';
     shouldReconnectRef.current = true;
+    connectionSerialRef.current += 1;
+    reconnectAttemptRef.current = 0;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
     }
     if (wsRef.current) {
-      wsRef.current.close();
+      const oldWs = wsRef.current;
       wsRef.current = null;
+      oldWs.close();
     }
     setConnected(false);
-    reconnectTimerRef.current = setTimeout(connectWebSocket, 200);
-  }, [backendHost, connectWebSocket]);
+    // Also reconnect when the user saves the same host again.
+    setConnectionVersion(version => version + 1);
+  }, [backendHost]);
 
   const openBackendProbe = useCallback(() => {
     window.open(`${backendHttpUrl}/health`, '_blank', 'noopener,noreferrer');
@@ -507,6 +553,10 @@ function AppContent() {
     sendCommand('get_camera_status');
   }, [sendCommand]);
 
+  const handleSetCameraOrientation = useCallback((orientation) => {
+    sendCommand('set_camera_orientation', { orientation });
+  }, [sendCommand]);
+
   const handleCreateSession = useCallback((sessionName) => {
     sendCommand('create_session', { session_name: sessionName });
   }, [sendCommand]);
@@ -629,6 +679,7 @@ function AppContent() {
               onConnectCamera={handleConnectCamera}
               onDisconnectCamera={handleDisconnectCamera}
               onRefreshCameraStatus={handleRefreshCameraStatus}
+              onSetCameraOrientation={handleSetCameraOrientation}
               onStartAutoCapture={handleStartAutoCapture}
               onStopAutoCapture={handleStopAutoCapture}
               onCreateSession={handleCreateSession}

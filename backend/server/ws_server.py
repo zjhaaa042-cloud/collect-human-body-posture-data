@@ -3,6 +3,8 @@ import json
 import re
 import secrets
 import ipaddress
+import time
+import os
 import websockets
 from websockets.http11 import Response
 from websockets.datastructures import Headers
@@ -17,7 +19,7 @@ from ..voice.recognizer import VoiceRecognizer
 from ..voice.synthesizer import VoiceSynthesizer
 from ..voice.command_parser import VoiceCommandParser, VoiceCommand
 from ..utils.frame_processor import FrameProcessor
-from ..config.settings import get_settings
+from ..config.settings import get_settings, save_settings
 
 _ERROR_MESSAGES = {
     json.JSONDecodeError: "请求格式无效",
@@ -109,15 +111,22 @@ class WebSocketServer:
         self.auth_token = secrets.token_urlsafe(32)
 
         self.settings = get_settings()
-        self.camera = CameraManager()
+        self.camera = CameraManager(self.settings.camera.orientation)
         self.depth_analyzer = DepthAnalyzer(
             target_distance_mm=self.settings.distance.target_distance_mm,
             tolerance_mm=self.settings.distance.tolerance_mm,
-            roi_ratio=self.settings.distance.roi_ratio
+            roi_ratio=self.settings.distance.roi_ratio,
+            min_distance_mm=self.settings.distance.min_distance_mm,
+            max_distance_mm=self.settings.distance.max_distance_mm,
+            min_edge_margin=self.settings.distance.min_edge_margin,
+            min_body_depth_coverage=self.settings.distance.min_body_depth_coverage,
+            min_quality_score=self.settings.distance.min_quality_score,
+            pose_model_path=self.settings.distance.pose_model_path,
         )
         self.data_collector = DataCollector(self.settings.storage.output_dir)
+        preview_size = self._preview_size_for_orientation(self.camera.orientation)
         self.frame_processor = FrameProcessor(
-            preview_size=(self.settings.gui.preview_width, self.settings.gui.preview_height),
+            preview_size=preview_size,
             jpeg_quality=self.settings.gui.jpeg_quality
         )
 
@@ -128,10 +137,14 @@ class WebSocketServer:
 
         self.is_previewing = False
         self.is_capturing = False
+        self.capture_cancelled = False
         self.is_shutting_down = False
         self.capture_lock = asyncio.Lock()
         self.camera_lock = asyncio.Lock()
         self.preview_task = None
+        self._last_color_preview = ""
+        self._last_depth_preview = ""
+        self._preview_miss_count = 0
         self.auto_capture_enabled = False
         self.auto_capture_options = {}
         self.auto_required_frames = 10
@@ -144,8 +157,22 @@ class WebSocketServer:
         self.auto_message = "自动采集未开启"
         self.auto_task = None
         self.auto_last_voice_key = None
+        self._last_voice_command = None
+        self._last_voice_command_at = 0.0
+        self.shutdown_when_idle = os.environ.get("BODY_COLLECTOR_SHUTDOWN_WHEN_IDLE") == "1"
+        self._had_authenticated_client = False
+        self._idle_shutdown_task = None
 
         self._setup_voice()
+
+    def _preview_size_for_orientation(self, orientation: str):
+        raw_w, raw_h = self.settings.camera.width, self.settings.camera.height
+        if orientation in {"portrait_cw", "portrait_ccw"}:
+            output_w, output_h = raw_h, raw_w
+            target_h = self.settings.gui.preview_width
+            return max(1, round(target_h * output_w / output_h)), target_h
+        target_w = self.settings.gui.preview_width
+        return target_w, max(1, round(target_w * raw_h / raw_w))
 
     def _setup_voice(self):
         if self.settings.voice.enabled:
@@ -156,11 +183,14 @@ class WebSocketServer:
                     rate=self.settings.voice.tts_rate,
                     volume=self.settings.voice.tts_volume
                 )
-                self.voice_recognizer.start_listening(
+                recognition_started = self.voice_recognizer.start_listening(
                     self._on_voice_command,
                     self._on_voice_activity
                 )
-                logger.info("Voice system initialized")
+                if not recognition_started:
+                    self.voice_recognizer = None
+                    logger.info("Voice commands are disabled until a complete Vosk model is installed")
+                logger.info("Voice output initialized")
             except Exception as e:
                 logger.error(f"Failed to setup voice: {e}")
 
@@ -176,7 +206,18 @@ class WebSocketServer:
                 pass
 
     def _on_voice_command(self, text: str):
+        # Ignore audio fed back from our own speakers.
+        if self.voice_synthesizer and self.voice_synthesizer.is_speaking:
+            return
         command = self.voice_parser.execute_command(text)
+        if command == VoiceCommand.UNKNOWN:
+            return
+        now = time.monotonic()
+        # Partial and final Vosk results often contain the same command.
+        if command == self._last_voice_command and now - self._last_voice_command_at < 1.5:
+            return
+        self._last_voice_command = command
+        self._last_voice_command_at = now
         if command == VoiceCommand.START_CAPTURE:
             if self.loop and not self.loop.is_closed():
                 try:
@@ -184,6 +225,10 @@ class WebSocketServer:
                 except Exception:
                     pass
         elif command == VoiceCommand.STOP_CAPTURE:
+            self.capture_cancelled = True
+            self.is_capturing = False
+        elif command == VoiceCommand.CANCEL:
+            self.capture_cancelled = True
             self.is_capturing = False
         elif command == VoiceCommand.FINISH:
             if self.loop and not self.loop.is_closed():
@@ -205,6 +250,18 @@ class WebSocketServer:
             min_color_brightness=self.settings.storage.min_color_brightness,
             max_color_brightness=self.settings.storage.max_color_brightness
         )
+
+    @staticmethod
+    def _distance_payload(info):
+        return {
+            "distance_mm": info.distance_mm,
+            "status": info.status.value,
+            "message": info.message,
+            "confidence": info.confidence,
+            "full_body_visible": info.full_body_visible,
+            "visibility_score": info.visibility_score,
+            "capture_quality": info.to_capture_quality(),
+        }
 
     async def _send_error(self, websocket, message: str):
         try:
@@ -241,6 +298,12 @@ class WebSocketServer:
 
     async def _start_auto_capture(self, data: dict = None):
         data = data or {}
+        if not self.depth_analyzer.pose_analyzer.available:
+            self.auto_capture_enabled = False
+            self.auto_state = "error"
+            self.auto_message = "MediaPipe姿态模型不可用，自动采集已禁用；可使用手动强制采集"
+            await self._broadcast_auto_status()
+            return
         self.auto_capture_options = data.get("options") or {}
         self.auto_required_frames = min(
             _MAX_AUTO_STABLE_FRAMES,
@@ -283,10 +346,11 @@ class WebSocketServer:
         if self.auto_task and not self.auto_task.done():
             return
 
-        if distance_info is None or distance_info.status != DistanceStatus.OPTIMAL:
+        if distance_info is None or not distance_info.ready:
             if self.auto_state != "waiting":
                 self.auto_last_voice_key = None
-            self._set_auto_waiting("waiting", "等待人体进入合适距离")
+            message = distance_info.recommended_action if distance_info else "等待人体进入画面"
+            self._set_auto_waiting("waiting", message)
             await self._broadcast_auto_status()
             return
 
@@ -320,7 +384,7 @@ class WebSocketServer:
         await self._broadcast_auto_status()
 
         while self.auto_capture_enabled and self.auto_captured_count < self.auto_target_count:
-            capture_options = {**self.auto_capture_options, "_suppress_voice": True}
+            capture_options = {**self.auto_capture_options, "_suppress_voice": True, "_auto_capture": True}
             result = await self._handle_capture(capture_options)
             next_index = self.auto_captured_count + 1
             if result and result.success:
@@ -354,15 +418,24 @@ class WebSocketServer:
 
         async with self.capture_lock:
             self.is_capturing = True
+            self.capture_cancelled = False
             try:
                 suppress_voice = bool((options or {}).get("_suppress_voice"))
+                force_capture = bool((options or {}).get("force"))
+                auto_capture = bool((options or {}).get("_auto_capture"))
                 config = self._build_capture_config(options)
-                if self.voice_synthesizer and not suppress_voice:
-                    self.voice_synthesizer.speak("开始采集，请保持姿势不动。", blocking=False)
 
                 await asyncio.sleep(1)
 
-                frames = self.camera.get_frames()
+                if self.capture_cancelled:
+                    await self._broadcast({
+                        "type": "capture_result",
+                        "data": {"success": False, "error": "采集已取消"}
+                    })
+                    return None
+
+                async with self.camera_lock:
+                    frames = await asyncio.to_thread(self.camera.get_frames)
                 if not frames:
                     await self._broadcast({
                         "type": "capture_result",
@@ -371,29 +444,59 @@ class WebSocketServer:
                     return None
 
                 if frames.depth is not None:
-                    human_detected, _ = self.depth_analyzer.detect_human(frames.depth, frames.depth_scale)
-                    if not human_detected:
-                        if self.voice_synthesizer and not suppress_voice:
-                            self.voice_synthesizer.speak("未识别到人体，请站在相机前方。", blocking=False)
-                        await self._broadcast({
-                            "type": "capture_result",
-                            "data": {
-                                "success": False,
-                                "error": "未识别到人体，请站在相机前方"
-                            }
-                        })
+                    body_info = await asyncio.to_thread(
+                        self.depth_analyzer.analyze_distance,
+                        frames.depth,
+                        frames.color,
+                        frames.depth_scale,
+                        wait_for_pose=True,
+                    )
+                    if not body_info.ready and not force_capture:
+                        warning = {
+                            "quality": body_info.to_capture_quality(),
+                            "message": body_info.message,
+                            "options": {key: value for key, value in (options or {}).items() if not key.startswith("_")},
+                        }
+                        if auto_capture:
+                            await self._broadcast({"type": "capture_result", "data": {"success": False, "error": body_info.message}})
+                        else:
+                            await self._broadcast({"type": "capture_quality_warning", "data": warning})
                         return None
+                else:
+                    await self._broadcast({
+                        "type": "capture_result",
+                        "data": {"success": False, "error": "没有可用的深度数据"}
+                    })
+                    return None
+
+                if self.voice_synthesizer and not suppress_voice:
+                    self.voice_synthesizer.speak("开始采集，请保持姿势不动。", blocking=False)
 
                 point_cloud = None
                 if config.save_pointcloud:
-                    point_cloud = self.camera.generate_point_cloud(
+                    point_cloud = await asyncio.to_thread(
+                        self.camera.generate_point_cloud,
                         frames,
                         colored=config.colored_pointcloud,
                         stride=self.settings.storage.pointcloud_stride
                     )
 
-                intrinsics = self.camera.get_camera_intrinsics()
-                result = self.data_collector.capture(frames, point_cloud, config, camera_intrinsics=intrinsics)
+                intrinsics = await asyncio.to_thread(self.camera.get_camera_intrinsics)
+                quality_snapshot = body_info.to_capture_quality()
+                pose_metadata = self.depth_analyzer.build_pose_metadata(
+                    body_info, frames.depth, frames.depth_scale, intrinsics
+                ) if body_info.landmarks_2d and intrinsics else None
+                orientation_metadata = await asyncio.to_thread(self.camera.get_orientation_metadata)
+                result = await asyncio.to_thread(
+                    self.data_collector.capture,
+                    frames,
+                    point_cloud,
+                    config,
+                    intrinsics,
+                    quality_snapshot,
+                    pose_metadata,
+                    orientation_metadata,
+                )
 
                 await self._broadcast({
                     "type": "capture_result",
@@ -404,6 +507,8 @@ class WebSocketServer:
                         "rgb_path": result.rgb_path,
                         "depth_path": result.depth_path,
                         "pointcloud_path": result.pointcloud_path,
+                        "pose_path": result.pose_path,
+                        "quality": result.quality,
                         "error": result.error
                     }
                 })
@@ -437,6 +542,7 @@ class WebSocketServer:
 
     async def _send_camera_status(self, websocket=None, action: str = "status"):
         status = self.camera.get_status()
+        status["orientation"] = self.camera.orientation
         status["action"] = action
         message = {
             "type": "camera_status",
@@ -457,12 +563,13 @@ class WebSocketServer:
 
         async with self.camera_lock:
             data = data or {}
-            ok = self.camera.connect(
+            ok = await asyncio.to_thread(
+                self.camera.connect,
                 width=self.settings.camera.width,
                 height=self.settings.camera.height,
                 fps=self.settings.camera.fps,
                 params_file=self.settings.camera.params_file,
-                device_id=data.get("device_id", "")
+                device_id=data.get("device_id", ""),
             )
             if ok:
                 logger.info("Camera connected by client request")
@@ -476,8 +583,11 @@ class WebSocketServer:
             return
 
         async with self.camera_lock:
-            self.camera.release()
+            await asyncio.to_thread(self.camera.release)
             self.depth_analyzer.reset()
+            self._last_color_preview = ""
+            self._last_depth_preview = ""
+            self._preview_miss_count = 0
             await self._broadcast({
                 "type": "preview_frame",
                 "data": {
@@ -556,6 +666,10 @@ class WebSocketServer:
             return
 
         self.clients.add(websocket)
+        self._had_authenticated_client = True
+        if self._idle_shutdown_task and not self._idle_shutdown_task.done():
+            self._idle_shutdown_task.cancel()
+        self._idle_shutdown_task = None
         logger.info(f"Client connected: {remote}")
         try:
             await websocket.send(json.dumps({"type": "auth_success"}, ensure_ascii=False))
@@ -589,6 +703,22 @@ class WebSocketServer:
                     await self._stop_preview()
                 except Exception:
                     pass
+                if self.shutdown_when_idle and self._had_authenticated_client and not self.is_shutting_down:
+                    if not self._idle_shutdown_task or self._idle_shutdown_task.done():
+                        self._idle_shutdown_task = asyncio.create_task(self._shutdown_after_idle())
+
+    async def _shutdown_after_idle(self, delay: float = 5.0):
+        """Allow a page refresh/reconnect, then stop a browser-launched session."""
+        try:
+            await asyncio.sleep(delay)
+            if self.clients or self.is_shutting_down:
+                return
+            logger.info("No frontend client reconnected; stopping the application services")
+            self.is_shutting_down = True
+            if hasattr(self, "_ws_server") and self._ws_server:
+                self._ws_server.close()
+        except asyncio.CancelledError:
+            pass
 
     async def _process_message(self, websocket, data: dict):
         msg_type = data.get("type")
@@ -605,6 +735,17 @@ class WebSocketServer:
             await self._handle_disconnect_camera(websocket)
         elif msg_type == "get_camera_status":
             await self._send_camera_status(websocket, action="status")
+        elif msg_type == "set_camera_orientation":
+            orientation = self.camera.set_orientation(data.get("orientation"))
+            self.frame_processor.preview_size = self._preview_size_for_orientation(orientation)
+            self.settings.camera.orientation = orientation
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config.json")
+            save_settings(self.settings, config_path)
+            self.depth_analyzer.reset()
+            self._last_color_preview = ""
+            self._last_depth_preview = ""
+            self._preview_miss_count = 0
+            await self._send_camera_status(websocket, action="orientation")
         elif msg_type == "start_auto_capture":
             await self._start_auto_capture(data)
         elif msg_type == "stop_auto_capture":
@@ -620,18 +761,19 @@ class WebSocketServer:
             except Exception:
                 pass
         elif msg_type == "get_distance":
-            distance = self.camera.get_center_distance()
-            depth_frame = self.camera.get_frames()
+            async with self.camera_lock:
+                depth_frame = await asyncio.to_thread(self.camera.get_frames)
             if depth_frame and depth_frame.depth is not None:
-                distance_info = self.depth_analyzer.analyze_distance(depth_frame.depth)
+                distance_info = await asyncio.to_thread(
+                    self.depth_analyzer.analyze_distance,
+                    depth_frame.depth,
+                    depth_frame.color,
+                    depth_frame.depth_scale,
+                )
                 try:
                     await websocket.send(json.dumps({
                         "type": "distance_update",
-                        "data": {
-                            "distance_mm": distance_info.distance_mm,
-                            "status": distance_info.status.value,
-                            "message": distance_info.message
-                        }
+                        "data": self._distance_payload(distance_info)
                     }))
                 except Exception:
                     pass
@@ -724,25 +866,42 @@ class WebSocketServer:
                     await asyncio.sleep(max(0.1, 1.0 / max(1, self.settings.gui.preview_fps)))
                     continue
                 
-                frames = self.camera.get_frames()
+                async with self.camera_lock:
+                    frames = await asyncio.to_thread(self.camera.get_frames)
                 color_preview = ""
                 depth_preview = ""
                 distance_data = None
 
                 if frames and frames.color is not None:
-                    color_preview = self.frame_processor.encode_preview_fast(frames.color, is_rgb=True)
+                    color_preview = await asyncio.to_thread(
+                        self.frame_processor.encode_preview_fast, frames.color, True
+                    )
+                    if color_preview:
+                        self._last_color_preview = color_preview
 
                 if frames and frames.depth is not None:
-                    depth_preview = self.frame_processor.encode_depth_preview_fast(frames.depth, frames.depth_scale)
-                    distance_info = self.depth_analyzer.analyze_distance(frames.depth, depth_scale=frames.depth_scale)
-                    distance_data = {
-                        "distance_mm": distance_info.distance_mm,
-                        "status": distance_info.status.value,
-                        "message": distance_info.message,
-                        "confidence": distance_info.confidence
-                    }
+                    depth_preview, distance_info = await asyncio.gather(
+                        asyncio.to_thread(
+                            self.frame_processor.encode_depth_preview_fast,
+                            frames.depth,
+                            frames.depth_scale,
+                        ),
+                        asyncio.to_thread(
+                            self.depth_analyzer.analyze_distance,
+                            frames.depth,
+                            frames.color,
+                            depth_scale=frames.depth_scale,
+                        ),
+                    )
+                    distance_data = self._distance_payload(distance_info)
+                    if depth_preview:
+                        self._last_depth_preview = depth_preview
+                        self._preview_miss_count = 0
+                    else:
+                        self._preview_miss_count += 1
                     await self._update_auto_capture(distance_info)
                 else:
+                    self._preview_miss_count += 1
                     await self._update_auto_capture(None)
                     distance_data = {
                         "distance_mm": 0,
@@ -750,6 +909,12 @@ class WebSocketServer:
                         "message": self.camera.last_error or "摄像头未连接",
                         "confidence": 0
                     }
+
+                # Brief camera timeouts should not replace the images with an
+                # empty frame; doing so makes both previews visibly blink.
+                if self._preview_miss_count <= 5:
+                    color_preview = color_preview or self._last_color_preview
+                    depth_preview = depth_preview or self._last_depth_preview
 
                 await self._broadcast({
                     "type": "preview_frame",
@@ -775,14 +940,22 @@ class WebSocketServer:
             return
         try:
             message_str = json.dumps(message, ensure_ascii=False)
-            closed = set()
-            for client in list(self.clients):
+            clients = list(self.clients)
+
+            async def send_one(client):
                 try:
-                    await client.send(message_str)
+                    await asyncio.wait_for(client.send(message_str), timeout=0.5)
+                    return None
                 except Exception:
-                    closed.add(client)
-            for client in closed:
+                    return client
+
+            closed = await asyncio.gather(*(send_one(client) for client in clients))
+            for client in filter(None, closed):
                 self.clients.discard(client)
+                try:
+                    await client.close(code=1011, reason="client too slow")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -804,9 +977,21 @@ class WebSocketServer:
 
             self._ws_server = await websockets.serve(
                 self._handle_client, self.host, self.port,
-                process_request=self._process_http_request
+                process_request=self._process_http_request,
+                ping_interval=10,
+                ping_timeout=10,
+                close_timeout=3,
+                max_queue=16,
+                max_size=2 * 1024 * 1024,
             )
             logger.info(f"WebSocket server started on ws://{self.host}:{self.port}")
+
+            if self.shutdown_when_idle:
+                # Also avoid leaving services behind if the browser never
+                # authenticates because it was closed during startup.
+                self._idle_shutdown_task = asyncio.create_task(
+                    self._shutdown_after_idle(delay=30.0)
+                )
 
             if camera_ok:
                 logger.info("Camera ready")
@@ -817,6 +1002,7 @@ class WebSocketServer:
                 self.voice_synthesizer.speak("系统已启动", blocking=False)
 
             await self._ws_server.wait_closed()
+            self.stop()
         except Exception as e:
             logger.error(f"Server error: {e}")
             raise
@@ -831,6 +1017,10 @@ class WebSocketServer:
             except Exception:
                 pass
             self.voice_recognizer = None
+        try:
+            self.depth_analyzer.close()
+        except Exception:
+            pass
         if hasattr(self, '_ws_server') and self._ws_server:
             try:
                 self._ws_server.close()
