@@ -5,6 +5,7 @@
     "fps": 30,
     "align_mode": "D2C_HW",
     "orientation": "portrait_cw",
+    "calibration_version": "orbbec_d2c_v1",
     "params_file": "config/camera_params.json"
   },
   "voice": {

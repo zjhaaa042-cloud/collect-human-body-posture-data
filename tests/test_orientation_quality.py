@@ -8,6 +8,7 @@ from backend.core.camera_manager import CameraIntrinsics, CameraManager, FrameDa
 from backend.core.data_collector import CaptureConfig, DataCollector
 from backend.core.depth_analyzer import DepthAnalyzer, DistanceStatus
 from backend.core.pose_analyzer import PoseFrameResult
+from backend.storage.ply_writer import PLYWriter
 
 
 class FakePoseAnalyzer:
@@ -110,10 +111,38 @@ class QualityTests(unittest.TestCase):
 
 
 class StorageTests(unittest.TestCase):
-    def test_v2_metadata_and_pose_file(self):
+    @staticmethod
+    def _calibration(orientation="portrait_cw"):
+        return {
+            "calibration_version": "test_v1",
+            "camera": {"serial_number": "TEST123"},
+            "orientation": orientation,
+            "raw_resolution": [3, 4],
+            "output_resolution": [3, 4],
+            "output_intrinsics": {"fx": 3, "fy": 3, "cx": 1, "cy": 2, "width": 3, "height": 4},
+            "depth_unit_mm": 1.0,
+            "alignment": "depth_to_color",
+        }
+
+    @staticmethod
+    def _context():
+        return {
+            "capture_group_id": "group_001",
+            "view_yaw_deg": 0,
+            "pose_type": "standing_relaxed",
+            "clothing_type": "fitted",
+            "camera_height_mm": 900,
+            "quality_ready": True,
+        }
+
+    def test_v3_metadata_mask_calibration_and_truth(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             collector = DataCollector(temp_dir)
-            collector.create_session("test")
+            collector.create_session("test", {
+                "subject_id": "subject_001",
+                "visit_id": "visit_001",
+                "measurement": {"raw_readings_cm": [72.1, 72.3, 72.2], "measurer_id": "staff_01"},
+            })
             frame = FrameData(
                 color=np.full((4, 3, 3), 120, dtype=np.uint8),
                 depth=np.full((4, 3), 1500, dtype=np.uint16),
@@ -126,14 +155,51 @@ class StorageTests(unittest.TestCase):
                 frame,
                 config=CaptureConfig(save_pointcloud=False, quality_check=False),
                 camera_intrinsics=intrinsics,
-                quality_snapshot={"score": 90, "distance_mm": 1500},
+                quality_snapshot={"score": 90, "distance_mm": 1500, "ready": True},
                 pose_metadata={"landmarks_2d": [], "landmarks_3d": []},
-                orientation_metadata={"orientation": "portrait_cw"},
+                calibration_snapshot=self._calibration(),
+                body_mask=np.ones((4, 3), dtype=np.uint8),
+                body_bbox=(0, 0, 3, 4),
+                mask_source="mediapipe",
+                capture_context=self._context(),
             )
             self.assertTrue(result.success)
             self.assertTrue((Path(temp_dir) / "sessions" / "test" / result.pose_path).is_file())
-            self.assertEqual(collector.session_metadata["format_version"], 2)
-            self.assertEqual(collector.session_metadata["processing"]["orientation"], "portrait_cw")
+            self.assertTrue((Path(temp_dir) / "sessions" / "test" / result.mask_path).is_file())
+            self.assertTrue((Path(temp_dir) / "sessions" / "test" / result.calibration_path).is_file())
+            self.assertEqual(collector.session_metadata["format_version"], 3)
+            self.assertEqual(collector.session_metadata["measurement"]["mean_cm"], 72.2)
+            self.assertEqual(collector.session_metadata["captures"][0]["qc_status"], "accepted")
+            collector.update_capture_review("cap_001", "isolated", "staff_01", "衣物遮挡")
+            self.assertEqual(collector.session_metadata["captures"][0]["qc_status"], "isolated")
+            self.assertEqual(collector.session_metadata["captures"][0]["manual_review"]["decision"], "isolated")
+
+    def test_configuration_change_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            collector = DataCollector(temp_dir)
+            collector.create_session("test", {"subject_id": "subject_001", "visit_id": "visit_001"})
+            frame = FrameData(None, np.full((4, 3), 1500, dtype=np.uint16), 1.0, 1, 1)
+            config = CaptureConfig(save_rgb=False, save_pointcloud=False, quality_check=False)
+            first = collector.capture(
+                frame, config=config, calibration_snapshot=self._calibration(), body_mask=np.ones((4, 3)), capture_context=self._context()
+            )
+            second = collector.capture(
+                frame, config=config, calibration_snapshot=self._calibration("landscape"), body_mask=np.ones((4, 3)), capture_context=self._context()
+            )
+            self.assertTrue(first.success)
+            self.assertFalse(second.success)
+            self.assertIn("请新建会话", second.error)
+
+    def test_binary_and_ascii_ply_round_trip(self):
+        points = np.array([[1.5, 2.5, 3.5], [-1.0, 0.0, 4.0]], dtype=np.float32)
+        colors = np.array([[10, 20, 30], [200, 210, 220]], dtype=np.uint8)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for binary in (False, True):
+                path = Path(temp_dir) / f"roundtrip_{binary}.ply"
+                PLYWriter.save(str(path), points, colors, binary=binary)
+                loaded_points, loaded_colors = PLYWriter.load(str(path))
+                np.testing.assert_allclose(loaded_points, points, atol=1e-3)
+                np.testing.assert_array_equal(loaded_colors, colors)
 
 
 if __name__ == "__main__":

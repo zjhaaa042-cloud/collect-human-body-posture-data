@@ -91,6 +91,7 @@ class DepthAnalyzer:
         self.max_history = 10
         self._last_mask = None
         self._last_bbox = None
+        self._last_mask_source = None
 
     @staticmethod
     def _bbox_from_mask(mask: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
@@ -214,9 +215,12 @@ class DepthAnalyzer:
             pose_available = self.pose_analyzer.available
             landmarks = pose.landmarks if pose and pose.detected else []
             mask = self._pose_mask(pose, depth_frame.shape)
+            mask_source = "mediapipe" if mask is not None else None
             bbox = self._bbox_from_mask(mask) if mask is not None else None
             if mask is None:
                 mask, bbox = self._fallback_depth_body(depth_mm)
+                if mask is not None:
+                    mask_source = "depth_fallback"
             if mask is None:
                 self.history.clear()
                 self.landmark_history.clear()
@@ -224,6 +228,7 @@ class DepthAnalyzer:
                 return DistanceInfo(0, DistanceStatus.NO_HUMAN, 0, reason, reasons=[reason], recommended_action="请站到相机正前方", pose_available=pose_available)
 
             self._last_mask, self._last_bbox = mask, bbox
+            self._last_mask_source = mask_source
             valid_depth = (depth_mm >= HUMAN_DEPTH_MIN_MM) & (depth_mm <= HUMAN_DEPTH_MAX_MM)
             mask_count = max(1, int(np.count_nonzero(mask)))
             coverage = np.count_nonzero((mask > 0) & valid_depth) / mask_count
@@ -314,6 +319,12 @@ class DepthAnalyzer:
         info = self.analyze_distance(depth_frame, color_frame, depth_scale)
         return info.status not in {DistanceStatus.NO_DATA, DistanceStatus.NO_HUMAN}, self._last_bbox
 
+    def get_body_segmentation(self):
+        """Return a defensive snapshot corresponding to the latest analysis."""
+        mask = None if self._last_mask is None else self._last_mask.astype(np.uint8, copy=True)
+        bbox = None if self._last_bbox is None else tuple(int(value) for value in self._last_bbox)
+        return mask, bbox, self._last_mask_source
+
     def build_pose_metadata(self, info: DistanceInfo, depth_frame, depth_scale, intrinsics) -> dict:
         landmarks_3d = []
         h, w = depth_frame.shape
@@ -336,6 +347,7 @@ class DepthAnalyzer:
         self.landmark_history.clear()
         self._last_mask = None
         self._last_bbox = None
+        self._last_mask_source = None
         self.pose_analyzer.reset()
 
     def close(self):

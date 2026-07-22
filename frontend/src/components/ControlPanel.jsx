@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Button, Checkbox, Space, Typography, Tag, List, Input, Select, Tooltip, Switch, Progress } from 'antd';
+import { Card, Button, Checkbox, Space, Typography, Tag, List, Input, InputNumber, Select, Tooltip, Switch, Progress } from 'antd';
 import {
   CameraOutlined,
   AudioOutlined,
@@ -50,12 +50,22 @@ const ControlPanel = ({
   onSelectSession,
   onFinishSession,
   onRefreshSessions,
-  onViewImage
+  onViewImage,
+  onReviewCapture
 }) => {
   const [saveRgb, setSaveRgb] = useState(true);
   const [saveDepth, setSaveDepth] = useState(true);
   const [savePointcloud, setSavePointcloud] = useState(true);
   const [sessionName, setSessionName] = useState('');
+  const [subjectId, setSubjectId] = useState('');
+  const [visitId, setVisitId] = useState('visit_001');
+  const [waistReadings, setWaistReadings] = useState('');
+  const [measurerId, setMeasurerId] = useState('');
+  const [captureGroupId, setCaptureGroupId] = useState('group_001');
+  const [viewYawDeg, setViewYawDeg] = useState(0);
+  const [poseType, setPoseType] = useState('standing_relaxed');
+  const [clothingType, setClothingType] = useState('fitted');
+  const [cameraHeightMm, setCameraHeightMm] = useState(900);
   const [selectedCameraId, setSelectedCameraId] = useState('');
 
   const cameraDevices = cameraStatus?.devices || [];
@@ -71,8 +81,28 @@ const ControlPanel = ({
 
   const handleCreateSession = () => {
     const name = sessionName.trim() || undefined;
-    onCreateSession(name);
+    const rawReadings = waistReadings
+      .split(/[,，\s]+/)
+      .map(value => Number(value))
+      .filter(value => Number.isFinite(value) && value > 0);
+    onCreateSession(name, {
+      subject_id: subjectId.trim(),
+      visit_id: visitId.trim() || 'visit_001',
+      measurement: {
+        protocol_version: 'waist_tape_v1',
+        raw_readings_cm: rawReadings,
+        measurer_id: measurerId.trim()
+      }
+    });
   };
+
+  const buildCaptureContext = () => ({
+    capture_group_id: captureGroupId.trim(),
+    view_yaw_deg: viewYawDeg,
+    pose_type: poseType,
+    clothing_type: clothingType,
+    camera_height_mm: cameraHeightMm
+  });
 
   const handleCapture = () => {
     onCapture({
@@ -80,7 +110,8 @@ const ControlPanel = ({
       save_depth: saveDepth,
       save_pointcloud: savePointcloud,
       colored_pointcloud: true,
-      quality_check: true
+      quality_check: true,
+      capture_context: buildCaptureContext()
     });
   };
 
@@ -89,7 +120,8 @@ const ControlPanel = ({
     save_depth: saveDepth,
     save_pointcloud: savePointcloud,
     colored_pointcloud: true,
-    quality_check: true
+    quality_check: true,
+    capture_context: buildCaptureContext()
   });
 
   const handleAutoCaptureChange = (checked) => {
@@ -262,10 +294,37 @@ const ControlPanel = ({
               prefix={<FolderOutlined />}
               size="small"
             />
-            <Button type="primary" onClick={handleCreateSession} size="small">
+            <Button type="primary" onClick={handleCreateSession} size="small" disabled={!subjectId.trim()}>
               新建
             </Button>
           </Space.Compact>
+          <div className="metadata-grid">
+            <Input
+              placeholder="匿名受试者 ID（必填）"
+              value={subjectId}
+              onChange={e => setSubjectId(e.target.value)}
+              size="small"
+            />
+            <Input
+              placeholder="访视 ID"
+              value={visitId}
+              onChange={e => setVisitId(e.target.value)}
+              size="small"
+            />
+            <Input
+              placeholder="腰围 3 次测量，如 72.1,72.3,72.2"
+              value={waistReadings}
+              onChange={e => setWaistReadings(e.target.value)}
+              size="small"
+            />
+            <Input
+              placeholder="测量者匿名 ID"
+              value={measurerId}
+              onChange={e => setMeasurerId(e.target.value)}
+              size="small"
+            />
+          </div>
+          {!subjectId.trim() && <Text type="warning" className="field-hint">新建会话前请填写匿名受试者 ID</Text>}
 
           {sessions.length > 0 && (
             <div className="session-selector">
@@ -292,6 +351,55 @@ const ControlPanel = ({
               当前会话：{sessionId}
             </Tag>
           )}
+        </div>
+
+        <div className="control-section">
+          <Title level={5}>采集标注</Title>
+          <div className="metadata-grid">
+            <Input
+              addonBefore="组"
+              value={captureGroupId}
+              onChange={e => setCaptureGroupId(e.target.value)}
+              size="small"
+            />
+            <Select
+              value={viewYawDeg}
+              onChange={setViewYawDeg}
+              size="small"
+              options={[0, 45, 90, 135, 180, 225, 270, 315].map(value => ({ value, label: `视角 ${value}°` }))}
+            />
+            <Select
+              value={poseType}
+              onChange={setPoseType}
+              size="small"
+              options={[
+                { value: 'standing_relaxed', label: '自然站立' },
+                { value: 'standing_arms_30_45', label: '站立、手臂 30°–45°' },
+                { value: 't_pose', label: 'T 姿势' },
+                { value: 'seated', label: '坐姿（QC 负样本）' }
+              ]}
+            />
+            <Select
+              value={clothingType}
+              onChange={setClothingType}
+              size="small"
+              options={[
+                { value: 'fitted', label: '贴身衣物' },
+                { value: 'standardized', label: '统一采集服' },
+                { value: 'loose', label: '宽松衣物' },
+                { value: 'outerwear', label: '厚外套' }
+              ]}
+            />
+            <InputNumber
+              addonBefore="相机高度"
+              addonAfter="mm"
+              min={100}
+              max={3000}
+              value={cameraHeightMm}
+              onChange={setCameraHeightMm}
+              size="small"
+            />
+          </div>
         </div>
 
         <div className="control-section">
@@ -425,10 +533,22 @@ const ControlPanel = ({
               <List.Item
                 onClick={() => item.hasImage && onViewImage?.(item.filename)}
                 className={item.hasImage ? 'history-item clickable' : 'history-item'}
+                actions={item.qcStatus === 'needs_review' ? [
+                  <Button key="accept" type="link" size="small" onClick={event => {
+                    event.stopPropagation();
+                    onReviewCapture?.(item.captureId, 'accepted', measurerId.trim());
+                  }}>保留</Button>,
+                  <Button key="isolate" type="link" danger size="small" onClick={event => {
+                    event.stopPropagation();
+                    onReviewCapture?.(item.captureId, 'isolated', measurerId.trim());
+                  }}>隔离</Button>
+                ] : undefined}
               >
                 <span className="history-id">
                   <CheckCircleOutlined />
                   <Text type="secondary">{item.id}</Text>
+                  {item.qcStatus === 'needs_review' && <Tag color="warning">待复核</Tag>}
+                  {item.qcStatus === 'isolated' && <Tag color="error">已隔离</Tag>}
                 </span>
                 <Text>{item.time}</Text>
               </List.Item>

@@ -138,6 +138,28 @@ class CameraManager:
             })
         return metadata
 
+    def get_calibration_snapshot(self, depth_scale: float, calibration_version: str = "orbbec_d2c_v1") -> Dict[str, Any]:
+        """Build an immutable calibration/configuration snapshot for one capture."""
+        metadata = self.get_orientation_metadata()
+        return {
+            "calibration_version": str(calibration_version or "unknown"),
+            "camera": {
+                "name": str(self.device_info.get("name", "")),
+                "serial_number": str(self.device_info.get("serial_number", "")),
+                "uid": str(self.device_info.get("uid", "")),
+                "connection_type": str(self.device_info.get("connection_type", "")),
+            },
+            "orientation": metadata.get("orientation", self.orientation),
+            "raw_to_output_rotation": metadata.get("raw_to_output_rotation"),
+            "raw_resolution": metadata.get("raw_resolution"),
+            "output_resolution": metadata.get("output_resolution"),
+            "raw_intrinsics": metadata.get("raw_intrinsics"),
+            "output_intrinsics": metadata.get("output_intrinsics"),
+            "depth_unit_mm": float(depth_scale),
+            "alignment": "depth_to_color",
+            "coordinate_unit": "millimeter",
+        }
+
     @staticmethod
     def _frame_format(frame):
         try:

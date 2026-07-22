@@ -486,7 +486,18 @@ class WebSocketServer:
                 pose_metadata = self.depth_analyzer.build_pose_metadata(
                     body_info, frames.depth, frames.depth_scale, intrinsics
                 ) if body_info.landmarks_2d and intrinsics else None
-                orientation_metadata = await asyncio.to_thread(self.camera.get_orientation_metadata)
+                body_mask, body_bbox, mask_source = self.depth_analyzer.get_body_segmentation()
+                calibration_snapshot = await asyncio.to_thread(
+                    self.camera.get_calibration_snapshot,
+                    frames.depth_scale,
+                    self.settings.camera.calibration_version,
+                )
+                raw_context = (options or {}).get("capture_context") or {}
+                capture_context = {
+                    **raw_context,
+                    "forced_capture": force_capture,
+                    "quality_ready": bool(body_info.ready),
+                }
                 result = await asyncio.to_thread(
                     self.data_collector.capture,
                     frames,
@@ -495,7 +506,11 @@ class WebSocketServer:
                     intrinsics,
                     quality_snapshot,
                     pose_metadata,
-                    orientation_metadata,
+                    calibration_snapshot,
+                    body_mask,
+                    body_bbox,
+                    mask_source,
+                    capture_context,
                 )
 
                 await self._broadcast({
@@ -506,8 +521,12 @@ class WebSocketServer:
                         "success": result.success,
                         "rgb_path": result.rgb_path,
                         "depth_path": result.depth_path,
+                        "depth_preview_path": result.depth_preview_path,
                         "pointcloud_path": result.pointcloud_path,
                         "pose_path": result.pose_path,
+                        "mask_path": result.mask_path,
+                        "calibration_path": result.calibration_path,
+                        "bbox": result.bbox,
                         "quality": result.quality,
                         "error": result.error
                     }
@@ -751,8 +770,9 @@ class WebSocketServer:
         elif msg_type == "stop_auto_capture":
             await self._stop_auto_capture()
         elif msg_type == "create_session":
-            session_name = _validate_field(data.get("session_name", ""), "session_name", _SAFE_PATTERN)
-            session_id = self.data_collector.create_session(session_name)
+            raw_session_name = data.get("session_name") or ""
+            session_name = _validate_field(raw_session_name, "session_name", _SAFE_PATTERN) if raw_session_name else ""
+            session_id = self.data_collector.create_session(session_name or None, data.get("subject"))
             try:
                 await websocket.send(json.dumps({
                     "type": "session_created",
@@ -808,6 +828,21 @@ class WebSocketServer:
                 await websocket.send(json.dumps({
                     "type": "capture_image",
                     "data": {"filename": filename, "image": image_b64}
+                }, ensure_ascii=False))
+            except Exception:
+                pass
+        elif msg_type == "review_capture":
+            capture_id = _validate_field(data.get("capture_id", ""), "filename", _FILENAME_PATTERN)
+            review = self.data_collector.update_capture_review(
+                capture_id,
+                data.get("status"),
+                data.get("reviewer_id", ""),
+                data.get("notes", ""),
+            )
+            try:
+                await websocket.send(json.dumps({
+                    "type": "review_updated",
+                    "data": {"capture_id": capture_id, "qc_status": review.get("qc_status")},
                 }, ensure_ascii=False))
             except Exception:
                 pass

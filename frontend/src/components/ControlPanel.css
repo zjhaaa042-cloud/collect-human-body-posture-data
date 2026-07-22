@@ -94,6 +94,25 @@
   width: 100%;
 }
 
+.metadata-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.metadata-grid .ant-select,
+.metadata-grid .ant-input-number,
+.metadata-grid .ant-input-number-group-wrapper {
+  width: 100%;
+}
+
+.field-hint.ant-typography {
+  display: block;
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
 .session-selector {
   display: flex;
   gap: 8px;

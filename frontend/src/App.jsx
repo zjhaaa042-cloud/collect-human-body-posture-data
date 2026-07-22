@@ -258,11 +258,17 @@ function AppContent() {
               setCaptureHistory(
                 (data.data.captures || []).map(c => ({
                   id: `cap_${String(c.index).padStart(3, '0')}`,
+                  captureId: c.capture_id || `cap_${String(c.index).padStart(3, '0')}`,
                   filename: c.filename,
                   time: c.time ? new Date(c.time * 1000).toLocaleTimeString() : '--',
-                  hasImage: c.has_image !== false
+                  hasImage: c.has_image !== false,
+                  qcStatus: c.qc_status || 'legacy'
                 })).reverse().slice(0, 10)
               );
+              break;
+            case 'review_updated':
+              message.success(data.data.qc_status === 'accepted' ? '已标记为保留' : '已标记为隔离');
+              ws.send(JSON.stringify({ type: 'get_captures' }));
               break;
             case 'session_created':
               setSessionId(data.data.session_id);
@@ -557,8 +563,8 @@ function AppContent() {
     sendCommand('set_camera_orientation', { orientation });
   }, [sendCommand]);
 
-  const handleCreateSession = useCallback((sessionName) => {
-    sendCommand('create_session', { session_name: sessionName });
+  const handleCreateSession = useCallback((sessionName, subject) => {
+    sendCommand('create_session', { session_name: sessionName, subject });
   }, [sendCommand]);
 
   const handleSelectSession = useCallback((name) => {
@@ -575,6 +581,10 @@ function AppContent() {
 
   const handleViewImage = useCallback((filename) => {
     sendCommand('get_capture_image', { filename });
+  }, [sendCommand]);
+
+  const handleReviewCapture = useCallback((captureId, status, reviewerId) => {
+    sendCommand('review_capture', { capture_id: captureId, status, reviewer_id: reviewerId });
   }, [sendCommand]);
 
   const handleExit = useCallback(() => {
@@ -687,6 +697,7 @@ function AppContent() {
               onFinishSession={handleFinishSession}
               onRefreshSessions={handleRefreshSessions}
               onViewImage={handleViewImage}
+              onReviewCapture={handleReviewCapture}
             />
           </div>
         </div>

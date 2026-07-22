@@ -12,6 +12,7 @@ class CameraSettings(BaseModel):
     align_mode: str = "D2C_HW"
     params_file: Optional[str] = "config/camera_params.json"
     orientation: str = "portrait_cw"
+    calibration_version: str = "orbbec_d2c_v1"
 
 
 class VoiceSettings(BaseModel):
