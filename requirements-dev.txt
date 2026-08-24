@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Test runner used by the protocol, storage, camera-adapter, and WebSocket suites.
+pytest>=8.3,<9

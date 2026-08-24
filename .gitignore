@@ -1,19 +1,32 @@
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *.so
 venv/
 .venv/
+.venv-*/
 *.egg-info/
 
 # Node.js
 node_modules/
 
+# Local agent/tool state
+.ai-bridge/
+.mimocode/
+.playwright-mcp/
+.serena/
+
 # Build
 frontend/build/
 
+# Downloaded vendor binaries
+tools/realsense/**/*.exe
+
 # Data
 data/sessions/
+data/realanthro_rgbd_v1/
+data/dev_only_validation/
 models/vosk-model-small-cn-0.22/
 
 # Temp

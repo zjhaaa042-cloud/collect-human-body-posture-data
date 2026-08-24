@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "mode": "DEV_ONLY",
+  "formal_dataset_eligible": false,
+  "run_id": "20260822_gemini_write_chain_01",
+  "backend": "orbbec",
+  "camera_code": "C336L",
+  "subject_id": "S9001",
+  "artifact_root": "data/dev_only_validation/20260822_gemini_write_chain_01_orbbec",
+  "protocol_root": "data/dev_only_validation/20260822_gemini_write_chain_01_orbbec/realanthro_rgbd_v1/collections/dev_only_collection",
+  "review_policy": {
+    "decision": "REJECT",
+    "reason": "DEV_ONLY 联调画面仅用于验证 F03 证据链，不得进入正式人体数据集",
+    "expected_condition_status": "NEEDS_RETAKE"
+  },
+  "devices": [],
+  "device_id": "CPCD7530002G",
+  "connected": false,
+  "adapter_status": {
+    "sdk_available": true,
+    "device_present": false,
+    "connected": false,
+    "initialized": false,
+    "streaming": false,
+    "device": {
+      "id": "orbbec:CPCD7530002G",
+      "backend": "orbbec",
+      "camera_code": "",
+      "protocol_model_verified": false
+    },
+    "devices": [],
+    "message": "未检测到奥比中光设备",
+    "backend": "orbbec"
+  },
+  "dev_only_pass": false,
+  "error": "RuntimeError: 未检测到奥比中光设备"
+}

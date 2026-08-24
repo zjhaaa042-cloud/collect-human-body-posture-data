@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "backend": "realsense",
+  "device_id": "243722074968",
+  "devices": [
+    {
+      "id": "realsense:243722074968",
+      "backend": "realsense",
+      "index": 0,
+      "name": "Intel RealSense D435I",
+      "serial_number": "243722074968",
+      "firmware_version": "5.15.1.55",
+      "product_line": "D400",
+      "product_id": "0B3A",
+      "usb_type_descriptor": "3.2",
+      "sdk": "pyrealsense2",
+      "sdk_version": "2.54.2.5684",
+      "sdk_available": true,
+      "camera_code": "CD435I",
+      "protocol_model_verified": true
+    }
+  ],
+  "requested_duration_seconds": 60,
+  "connected": true,
+  "completed_duration_seconds": 62.75,
+  "frame_count": 1800,
+  "observed_fps": 28.685,
+  "timeout_count": 0,
+  "failure_counts": {},
+  "calibration_sha256_counts": {
+    "0bf17bc2feedc57ce81a195a6bc66c675063246651209c16dbf9cc379cfd366b": 1800
+  },
+  "primary_frame_gap_count": 1,
+  "estimated_skipped_primary_frames": 1,
+  "nonmonotonic_primary_frames": 0,
+  "nonmonotonic_device_timestamps": 0,
+  "stream_frame_gap_counts": {
+    "color": 1,
+    "depth_aligned": 1,
+    "depth_raw": 1,
+    "infrared_left": 1,
+    "infrared_right": 1
+  },
+  "stream_estimated_skipped_frames": {
+    "color": 1,
+    "depth_aligned": 1,
+    "depth_raw": 1,
+    "infrared_left": 1,
+    "infrared_right": 1
+  },
+  "stream_nonmonotonic_frame_numbers": {},
+  "stream_nonmonotonic_timestamps": {},
+  "clock_anomaly_samples": [],
+  "device_interval_ms": {
+    "min": 31.664306640625,
+    "mean": 33.36419538632574,
+    "max": 69.312255859375,
+    "count": 1799
+  },
+  "interrupted": false,
+  "minimum_observed_fps": 10.0,
+  "warning_codes": [
+    "HOST_SAMPLING_SKIPPED_DEVICE_FRAMES"
+  ],
+  "hardware_pass": true
+}

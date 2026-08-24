@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "backend": "realsense",
+  "device_id": "243722074968",
+  "devices": [
+    {
+      "id": "realsense:243722074968",
+      "backend": "realsense",
+      "index": 0,
+      "name": "RealSense D435I",
+      "serial_number": "243722074968",
+      "firmware_version": "5.15.1.55",
+      "product_line": "D400",
+      "product_id": "0B3A",
+      "usb_type_descriptor": "3.2",
+      "sdk": "pyrealsense2",
+      "sdk_available": true,
+      "camera_code": "CD435I",
+      "protocol_model_verified": true
+    }
+  ],
+  "requested_duration_seconds": 1,
+  "connected": false,
+  "hardware_pass": false,
+  "error": "连接 RealSense 相机失败: 首个同步帧验收失败: Frame didn't arrive within 5000",
+  "adapter_status": {
+    "backend": "realsense",
+    "sdk_available": true,
+    "device_present": true,
+    "connected": false,
+    "initialized": false,
+    "streaming": false,
+    "device": {
+      "id": "realsense:243722074968",
+      "backend": "realsense",
+      "index": 0,
+      "name": "RealSense D435I",
+      "serial_number": "243722074968",
+      "firmware_version": "5.15.1.55",
+      "product_line": "D400",
+      "product_id": "0B3A",
+      "usb_type_descriptor": "3.2",
+      "sdk": "pyrealsense2",
+      "sdk_available": true,
+      "camera_code": "CD435I",
+      "protocol_model_verified": true,
+      "depth_scale_meters_per_unit": 0.0010000000474974513,
+      "stream_preflight": {
+        "passed": false,
+        "timeout_ms": 5000,
+        "error": "RuntimeError: Frame didn't arrive within 5000"
+      }
+    },
+    "devices": [
+      {
+        "id": "realsense:243722074968",
+        "backend": "realsense",
+        "index": 0,
+        "name": "RealSense D435I",
+        "serial_number": "243722074968",
+        "firmware_version": "5.15.1.55",
+        "product_line": "D400",
+        "product_id": "0B3A",
+        "usb_type_descriptor": "3.2",
+        "sdk": "pyrealsense2",
+        "sdk_available": true,
+        "camera_code": "CD435I",
+        "protocol_model_verified": true
+      }
+    ],
+    "message": "连接 RealSense 相机失败: 首个同步帧验收失败: Frame didn't arrive within 5000"
+  }
+}

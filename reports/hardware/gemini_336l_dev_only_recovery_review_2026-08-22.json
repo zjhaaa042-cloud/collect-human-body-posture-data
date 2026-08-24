@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "mode": "DEV_ONLY_RECOVERY",
+  "formal_dataset_eligible": false,
+  "protocol_root": "data/dev_only_validation/20260822_gemini_write_chain_03_orbbec/realanthro_rgbd_v1/collections/dev_only_collection",
+  "subject_id": "S9001",
+  "reject_pending_warn": true,
+  "startup_recovery": {
+    "started_at": "2026-08-22T12:18:43.017Z",
+    "completed_at": "2026-08-22T12:18:43.072Z",
+    "verify_committed": false,
+    "subjects_scanned": 1,
+    "subjects_changed": 1,
+    "recovered_commits": 0,
+    "aborted_attempts": 0,
+    "write_failed_attempts": 0,
+    "recovered_anthropometry": 0,
+    "subjects": [
+      {
+        "subject_id": "S9001",
+        "changed": true,
+        "recovered_commits": 0,
+        "aborted_attempts": 0,
+        "write_failed_attempts": 0,
+        "recovered_anthropometry": false,
+        "completion_report_rebuilt": false,
+        "actions": [
+          {
+            "attempt_id": "A20260822T120946707180Z_8ec8669f80",
+            "review_id": "RV20260822T120951405982Z_10ffc4bb",
+            "review_file_sha256": "df6a0235707d855cf6ca1de5fb0e763b7bf7857f74afcc47167864e0391a6fe9",
+            "decision": "REJECT",
+            "review_status": "REJECTED",
+            "content_sha256": "c7c70994f510da5291effc5e6e34ca3b49265f7ed3baff5e676478346904666d",
+            "action": "REVIEW_REPLAYED"
+          }
+        ],
+        "audit_errors": []
+      }
+    ],
+    "errors": []
+  },
+  "reviewed_pending_warn": [],
+  "audit": {
+    "verify_committed": true,
+    "subjects_scanned": 1,
+    "recovered_commits": 0,
+    "write_failed_attempts": 0,
+    "aborted_attempts": 0,
+    "errors": [],
+    "audit_errors": []
+  },
+  "state": {
+    "status": "ACTIVE",
+    "condition_statuses": {
+      "C336L_D2500_V000_LSTD_P1_CN_R01": "NEEDS_RETAKE"
+    },
+    "attempt_statuses": {
+      "A20260822T120946707180Z_8ec8669f80": {
+        "status": "COMMITTED",
+        "quality_status": "WARN",
+        "review_status": "REJECTED",
+        "file_count": 25
+      }
+    }
+  },
+  "completion": {
+    "status": "INCOMPLETE",
+    "ready_to_complete": false,
+    "integrity_errors": [],
+    "formal_completion_intentionally_blocked": true
+  },
+  "recovery_pass": true
+}

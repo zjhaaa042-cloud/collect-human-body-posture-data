@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0",
+  "mode": "DEV_ONLY",
+  "formal_dataset_eligible": false,
+  "run_id": "20260822_gemini_write_chain_04",
+  "backend": "orbbec",
+  "camera_code": "C336L",
+  "subject_id": "S9001",
+  "artifact_root": "data/dev_only_validation/20260822_gemini_write_chain_04_orbbec",
+  "protocol_root": "data/dev_only_validation/20260822_gemini_write_chain_04_orbbec/realanthro_rgbd_v1/collections/dev_only_collection",
+  "review_policy": {
+    "decision": "REJECT",
+    "reason": "DEV_ONLY 联调画面仅用于验证 F03 证据链，不得进入正式人体数据集",
+    "expected_condition_status": "NEEDS_RETAKE"
+  },
+  "devices": [
+    {
+      "id": "orbbec:CPCD7530002G",
+      "index": 0,
+      "name": "Orbbec Gemini 336L",
+      "serial_number": "CPCD7530002G",
+      "uid": "61359b",
+      "connection_type": "USB3.2",
+      "backend": "orbbec",
+      "sdk": "pyorbbecsdk",
+      "sdk_available": true,
+      "camera_code": "C336L",
+      "protocol_model_verified": true
+    }
+  ],
+  "device_id": "CPCD7530002G",
+  "connected": true,
+  "adapter_status": {
+    "sdk_available": true,
+    "device_present": true,
+    "connected": true,
+    "initialized": true,
+    "streaming": true,
+    "device": {
+      "id": "orbbec:CPCD7530002G",
+      "index": 0,
+      "name": "Orbbec Gemini 336L",
+      "serial_number": "CPCD7530002G",
+      "uid": "61359b",
+      "connection_type": "USB3.2",
+      "firmware_version": "1.6.00",
+      "hardware_version": "0.1",
+      "pid": 2055,
+      "vid": 11205,
+      "backend": "orbbec",
+      "camera_code": "C336L",
+      "protocol_model_verified": true
+    },
+    "devices": [
+      {
+        "id": "orbbec:CPCD7530002G",
+        "index": 0,
+        "name": "Orbbec Gemini 336L",
+        "serial_number": "CPCD7530002G",
+        "uid": "61359b",
+        "connection_type": "USB3.2",
+        "backend": "orbbec",
+        "sdk": "pyorbbecsdk",
+        "sdk_available": true,
+        "camera_code": "C336L",
+        "protocol_model_verified": true
+      }
+    ],
+    "message": "摄像头已连接",
+    "backend": "orbbec"
+  },
+  "condition": {
+    "condition_id": "C336L_D2500_V000_LSTD_P1_CN_R01",
+    "distance_mm": 2500,
+    "view_yaw_deg": 0,
+    "light_id": "LSTD",
+    "pose_id": "P1",
+    "clothing_id": "CN",
+    "repeat_id": 1,
+    "suite": "gemini_natural_clothing"
+  },
+  "capture": {
+    "committed": true,
+    "bookkeeping_status": "COMMITTED",
+    "reconciliation_required": false,
+    "attempt_id": "A20260822T121316224122Z_fa3ef77d44",
+    "quality_status": "WARN",
+    "failure_codes": [],
+    "warning_codes": [
+      "HUMAN_CONTENT_MANUAL_REVIEW"
+    ],
+    "calibration_sha256": "78a8c2b932b28698f772bf66ee45c46bdbdae5fbe08546dd5376f1fe72bfc3eb"
+  },
+  "f03_evidence": {
+    "anchor_frame": "F03",
+    "source": "verified_committed_files",
+    "rgb_preview_present": true,
+    "depth_preview_present": true,
+    "evidence_sha256": "bc293ddc10ce0a9ca0c1c4ce2fe9599296f621bb660509f6d8e5ec89f12a043c",
+    "verified_at": "2026-08-22T12:13:21.359Z"
+  },
+  "write_chain": {
+    "file_count": 25,
+    "expected_file_count": 25,
+    "modality_counts": {
+      "depth_aligned": 5,
+      "depth_raw": 5,
+      "ir_left": 5,
+      "ir_right": 5,
+      "rgb": 5
+    },
+    "sidecar_names": [
+      "capture.json",
+      "commit.json",
+      "qc.json"
+    ],
+    "sidecars": {
+      "capture.json": {
+        "sha256": "3f9229e7e5a35c64805c58f5c1ea850cb5d1952f6ee8ca8a817960c55d4633a5",
+        "size_bytes": 83033
+      },
+      "commit.json": {
+        "sha256": "52fb73ba0b127704979546c855104042e39984c38a905703ca654992eb9cbe20",
+        "size_bytes": 9771
+      },
+      "qc.json": {
+        "sha256": "17be15df3a3afb4b27c99f2805395e41a1bafd6abcee0796cf62994cc8d1e2f9",
+        "size_bytes": 39617
+      }
+    },
+    "anchor_files": {
+      "rgb": {
+        "path": "D:\\Desktop\\collect human body posture data\\body_posture_collector\\data\\dev_only_validation\\20260822_gemini_write_chain_04_orbbec\\realanthro_rgbd_v1\\collections\\dev_only_collection\\subjects\\S9001\\cameras\\C336L\\conditions\\C336L_D2500_V000_LSTD_P1_CN_R01\\attempts\\A20260822T121316224122Z_fa3ef77d44\\rgb\\S9001_C336L_D2500_V000_LSTD_P1_CN_R01_F03.png",
+        "relative_path": "subjects/S9001/cameras/C336L/conditions/C336L_D2500_V000_LSTD_P1_CN_R01/attempts/A20260822T121316224122Z_fa3ef77d44/rgb/S9001_C336L_D2500_V000_LSTD_P1_CN_R01_F03.png",
+        "size_bytes": 3077808,
+        "sha256": "d123a97fe21655e2b4e6c7b7b0bd6ca5c2da6da63527a67ff3d0ca22eddfdd22"
+      },
+      "depth_aligned": {
+        "path": "D:\\Desktop\\collect human body posture data\\body_posture_collector\\data\\dev_only_validation\\20260822_gemini_write_chain_04_orbbec\\realanthro_rgbd_v1\\collections\\dev_only_collection\\subjects\\S9001\\cameras\\C336L\\conditions\\C336L_D2500_V000_LSTD_P1_CN_R01\\attempts\\A20260822T121316224122Z_fa3ef77d44\\depth_aligned\\S9001_C336L_D2500_V000_LSTD_P1_CN_R01_F03.png",
+        "relative_path": "subjects/S9001/cameras/C336L/conditions/C336L_D2500_V000_LSTD_P1_CN_R01/attempts/A20260822T121316224122Z_fa3ef77d44/depth_aligned/S9001_C336L_D2500_V000_LSTD_P1_CN_R01_F03.png",
+        "size_bytes": 2052173,
+        "sha256": "f27effc8a691ef4434c5691a30baf0f202dadd9030b63727fcf66eabbaa92ad0"
+      }
+    },
+    "anchor_evidence_sha256": "bc293ddc10ce0a9ca0c1c4ce2fe9599296f621bb660509f6d8e5ec89f12a043c",
+    "review": {
+      "decision": "REJECT",
+      "review_status": "REJECTED",
+      "path": "meta/reviews/A20260822T121316224122Z_fa3ef77d44/RV20260822T121321398221Z_df3c9b88.json",
+      "file_sha256": "2c971bcb2277c6869e7f6c3d70b41bb0312f95ef34b194dc493ffc5ad3751a68",
+      "file_sha256_verified": true,
+      "content_sha256": "edc128598d617f3c56b3710d889294df09535ffe29847c6b90d323f7c0115944"
+    },
+    "condition_status_after_review": "NEEDS_RETAKE",
+    "accepted_attempt_id": null,
+    "review_operation_committed": true,
+    "review_bookkeeping_status": "COMMITTED"
+  },
+  "audit": {
+    "verify_committed": true,
+    "subjects_scanned": 1,
+    "write_failed_attempts": 0,
+    "aborted_attempts": 0,
+    "audit_errors": [],
+    "completion_status": "INCOMPLETE",
+    "completion_integrity_errors": [],
+    "formal_completion_intentionally_blocked": true
+  },
+  "dev_only_pass": true
+}

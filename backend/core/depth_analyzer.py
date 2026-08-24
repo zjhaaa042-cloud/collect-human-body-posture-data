@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 from loguru import logger
 
 HUMAN_DEPTH_MIN_MM = 300
-HUMAN_DEPTH_MAX_MM = 3000
+HUMAN_DEPTH_MAX_MM = 6000
 HUMAN_AREA_RATIO_THRESHOLD = 0.05
 
 

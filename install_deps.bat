@@ -11,10 +11,14 @@ echo   Install project dependencies
 echo ==========================================
 echo.
 
-where python >nul 2>nul
+set "BOOTSTRAP_PYTHON=python"
+if defined BODY_POSTURE_PYTHON set "BOOTSTRAP_PYTHON=%BODY_POSTURE_PYTHON%"
+
+"%BOOTSTRAP_PYTHON%" --version >nul 2>nul
 if errorlevel 1 (
   echo [ERROR] Python was not found.
-  echo Please install Python 3.10+ and check "Add python.exe to PATH".
+  echo Please install Python 3.10 or 3.11 and check "Add python.exe to PATH".
+  echo Alternatively set BODY_POSTURE_PYTHON to a compatible python.exe.
   echo Download: https://www.python.org/downloads/
   echo.
   if "%PAUSE_ON_EXIT%"=="1" pause
@@ -32,8 +36,10 @@ if errorlevel 1 (
 )
 
 echo [1/5] Checking Python version...
-python --version
+"%BOOTSTRAP_PYTHON%" --version
 if errorlevel 1 goto fail
+"%BOOTSTRAP_PYTHON%" -c "import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 12) else 1)"
+if errorlevel 1 goto python_version_fail
 
 set "PYTHON_CMD=.venv\Scripts\python.exe"
 set "PIP_SCOPE="
@@ -42,17 +48,15 @@ if exist ".use_system_python" del /q ".use_system_python" >nul 2>nul
 echo.
 echo [2/5] Creating Python virtual environment...
 if not exist ".venv\Scripts\python.exe" (
-  python -m venv .venv
+  "%BOOTSTRAP_PYTHON%" -m venv .venv
   if errorlevel 1 (
-    echo.
-    echo [WARN] Python virtual environment creation failed.
-    echo [WARN] Falling back to current Python with --user package installation.
-    set "PYTHON_CMD=python"
-    set "PIP_SCOPE=--user"
-    echo use system python>"%~dp0.use_system_python"
+    echo [ERROR] Python virtual environment creation failed.
+    goto fail
   )
 ) else (
   echo Existing .venv found, reusing it.
+  ".venv\Scripts\python.exe" -c "import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 12) else 1)"
+  if errorlevel 1 goto venv_version_fail
 )
 
 echo.
@@ -61,20 +65,7 @@ call "!PYTHON_CMD!" -m pip --version >nul 2>nul
 if errorlevel 1 (
   echo pip was not found, trying to enable it...
   call "!PYTHON_CMD!" -m ensurepip --upgrade
-  if errorlevel 1 (
-    if /i "!PYTHON_CMD!"==".venv\Scripts\python.exe" (
-      echo.
-      echo [WARN] Could not enable pip in .venv.
-      echo [WARN] Falling back to current Python with --user package installation.
-      set "PYTHON_CMD=python"
-      set "PIP_SCOPE=--user"
-      echo use system python>"%~dp0.use_system_python"
-      call "!PYTHON_CMD!" -m pip --version >nul 2>nul
-      if errorlevel 1 goto pip_fail
-    ) else (
-      goto pip_fail
-    )
-  )
+  if errorlevel 1 goto pip_fail
 )
 call "!PYTHON_CMD!" -m pip install !PIP_SCOPE! --upgrade pip setuptools wheel
 if errorlevel 1 goto fail
@@ -109,11 +100,6 @@ echo   Dependencies installed successfully
 echo ==========================================
 echo.
 echo You can now run go.bat to start the project.
-if exist ".use_system_python" (
-  echo.
-  echo Note: .venv could not be used on this computer.
-  echo go.bat will use the system Python instead.
-)
 echo.
 if "%PAUSE_ON_EXIT%"=="1" pause
 exit /b 0
@@ -132,6 +118,33 @@ echo.
 if "%PAUSE_ON_EXIT%"=="1" pause
 exit /b 1
 
+:python_version_fail
+cd /d "%~dp0"
+echo.
+echo ==========================================
+echo   Unsupported Python version
+echo ==========================================
+echo.
+echo D435i firmware 5.15.1.55 requires pyrealsense2 2.54.2.
+echo Its Windows wheel supports Python 3.10 and 3.11 only.
+echo Install Python 3.10/3.11 or set BODY_POSTURE_PYTHON to its python.exe.
+echo.
+if "%PAUSE_ON_EXIT%"=="1" pause
+exit /b 1
+
+:venv_version_fail
+cd /d "%~dp0"
+echo.
+echo ==========================================
+echo   Existing .venv is incompatible
+echo ==========================================
+echo.
+echo The existing .venv is not Python 3.10/3.11.
+echo Back it up or remove it, then rerun install_deps.bat with a compatible Python.
+echo.
+if "%PAUSE_ON_EXIT%"=="1" pause
+exit /b 1
+
 :fail
 cd /d "%~dp0"
 echo.
@@ -141,8 +154,8 @@ echo ==========================================
 echo.
 echo Please check the error above.
 echo Common fixes:
-echo - Install Python 3.10-3.12 and Node.js 18+ LTS.
-echo - Python 3.13 may not have wheels for some camera/point-cloud packages yet.
+echo - Install Python 3.10 or 3.11 and Node.js 18+ LTS.
+echo - Python 3.12/3.13 cannot install the firmware-matched pyrealsense2 2.54.2 wheel.
 echo - If frontend install fails, use Node.js 20 LTS or 22 LTS instead of very new Node versions.
 echo - If npm reports ECONNRESET, rerun install_frontend_deps.bat or switch to a stable network.
 echo - If PyAudio fails, install Microsoft C++ Build Tools, then run this file again.

@@ -1,6 +1,9 @@
 numpy>=1.24.0
 opencv-python>=4.8.0
-pyorbbecsdk2>=2.0.0
+pyorbbecsdk2==2.1.1
+# D435i firmware 5.15.1.55 is paired with librealsense 2.54.2.
+# This wheel is available for CPython 3.10/3.11 on Windows.
+pyrealsense2==2.54.2.5684
 websockets>=12.0
 vosk>=0.3.45
 edge-tts>=6.1.0

@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0",
+  "mode": "DEV_ONLY_RECOVERY",
+  "formal_dataset_eligible": false,
+  "protocol_root": "data/dev_only_validation/20260822_gemini_write_chain_02_orbbec/realanthro_rgbd_v1/collections/dev_only_collection",
+  "subject_id": "S9001",
+  "reject_pending_warn": true,
+  "startup_recovery": {
+    "started_at": "2026-08-22T12:18:27.268Z",
+    "completed_at": "2026-08-22T12:18:27.415Z",
+    "verify_committed": false,
+    "subjects_scanned": 1,
+    "subjects_changed": 1,
+    "recovered_commits": 1,
+    "aborted_attempts": 0,
+    "write_failed_attempts": 0,
+    "recovered_anthropometry": 0,
+    "subjects": [
+      {
+        "subject_id": "S9001",
+        "changed": true,
+        "recovered_commits": 1,
+        "aborted_attempts": 0,
+        "write_failed_attempts": 0,
+        "recovered_anthropometry": false,
+        "completion_report_rebuilt": false,
+        "actions": [
+          {
+            "attempt_id": "A20260822T120331522562Z_b75d20655a",
+            "condition_id": "C336L_D2500_V000_LSTD_P1_CN_R01",
+            "quality_status": "WARN",
+            "sidecars": {
+              "capture.json": {
+                "size_bytes": 83042,
+                "sha256": "12580b0c0120fca356c0bcfee251a93644e26eae76ea17994593ba65914c60e1"
+              },
+              "qc.json": {
+                "size_bytes": 39620,
+                "sha256": "93bd8633f6d33f4f6cf58d4f155f3af934428525485456754ec6581dc52aaee9"
+              },
+              "commit.json": {
+                "size_bytes": 9771,
+                "sha256": "f3913be2159c2d64c0204f4d5e31c62932650c562f1413769648b8c93e3cec0a"
+              }
+            },
+            "action": "COMMITTED"
+          }
+        ],
+        "audit_errors": []
+      }
+    ],
+    "errors": []
+  },
+  "reviewed_pending_warn": [
+    {
+      "condition_id": "C336L_D2500_V000_LSTD_P1_CN_R01",
+      "attempt_id": "A20260822T120331522562Z_b75d20655a",
+      "decision": "REJECT",
+      "evidence_sha256": "4f9835d19d38cf3eb1b7267bc262a19975080bb7494b292128712d4ff6f4ab0d",
+      "evidence_source": "verified_committed_files",
+      "bookkeeping_status": "COMMITTED"
+    }
+  ],
+  "audit": {
+    "verify_committed": true,
+    "subjects_scanned": 1,
+    "recovered_commits": 0,
+    "write_failed_attempts": 0,
+    "aborted_attempts": 0,
+    "errors": [],
+    "audit_errors": []
+  },
+  "state": {
+    "status": "ACTIVE",
+    "condition_statuses": {
+      "C336L_D2500_V000_LSTD_P1_CN_R01": "NEEDS_RETAKE"
+    },
+    "attempt_statuses": {
+      "A20260822T120331522562Z_b75d20655a": {
+        "status": "COMMITTED",
+        "quality_status": "WARN",
+        "review_status": "REJECTED",
+        "file_count": 25
+      }
+    }
+  },
+  "completion": {
+    "status": "INCOMPLETE",
+    "ready_to_complete": false,
+    "integrity_errors": [],
+    "formal_completion_intentionally_blocked": true
+  },
+  "recovery_pass": true
+}

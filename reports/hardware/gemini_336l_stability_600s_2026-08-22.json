@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "backend": "orbbec",
+  "device_id": "CPCD7530002G",
+  "devices": [
+    {
+      "id": "orbbec:CPCD7530002G",
+      "index": 0,
+      "name": "Orbbec Gemini 336L",
+      "serial_number": "CPCD7530002G",
+      "uid": "61359b",
+      "connection_type": "USB3.2",
+      "backend": "orbbec",
+      "sdk": "pyorbbecsdk",
+      "sdk_available": true,
+      "camera_code": "C336L",
+      "protocol_model_verified": true
+    }
+  ],
+  "requested_duration_seconds": 600,
+  "connected": true,
+  "completed_duration_seconds": 601.066,
+  "frame_count": 17947,
+  "observed_fps": 29.859,
+  "timeout_count": 0,
+  "failure_counts": {},
+  "calibration_sha256_counts": {
+    "cf0b8d8e1d0e524bbcba272ea94057b456314b7ae88fd2b43a82fdf99d56f0a1": 17947
+  },
+  "primary_frame_gap_count": 7,
+  "estimated_skipped_primary_frames": 7,
+  "nonmonotonic_primary_frames": 0,
+  "nonmonotonic_device_timestamps": 0,
+  "device_interval_ms": {
+    "min": 33.369999999180436,
+    "mean": 33.38974467847983,
+    "max": 66.746000001207,
+    "count": 17946
+  },
+  "interrupted": false,
+  "minimum_observed_fps": 10.0,
+  "warning_codes": [
+    "HOST_SAMPLING_SKIPPED_DEVICE_FRAMES"
+  ],
+  "hardware_pass": true
+}

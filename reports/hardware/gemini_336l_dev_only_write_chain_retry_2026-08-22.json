@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "mode": "DEV_ONLY",
+  "formal_dataset_eligible": false,
+  "run_id": "20260822_gemini_write_chain_02",
+  "backend": "orbbec",
+  "camera_code": "C336L",
+  "subject_id": "S9001",
+  "artifact_root": "data/dev_only_validation/20260822_gemini_write_chain_02_orbbec",
+  "protocol_root": "data/dev_only_validation/20260822_gemini_write_chain_02_orbbec/realanthro_rgbd_v1/collections/dev_only_collection",
+  "review_policy": {
+    "decision": "REJECT",
+    "reason": "DEV_ONLY 联调画面仅用于验证 F03 证据链，不得进入正式人体数据集",
+    "expected_condition_status": "NEEDS_RETAKE"
+  },
+  "devices": [
+    {
+      "id": "orbbec:CPCD7530002G",
+      "index": 0,
+      "name": "Orbbec Gemini 336L",
+      "serial_number": "CPCD7530002G",
+      "uid": "61359b",
+      "connection_type": "USB3.2",
+      "backend": "orbbec",
+      "sdk": "pyorbbecsdk",
+      "sdk_available": true,
+      "camera_code": "C336L",
+      "protocol_model_verified": true
+    }
+  ],
+  "device_id": "CPCD7530002G",
+  "connected": true,
+  "adapter_status": {
+    "sdk_available": true,
+    "device_present": true,
+    "connected": true,
+    "initialized": true,
+    "streaming": true,
+    "device": {
+      "id": "orbbec:CPCD7530002G",
+      "index": 0,
+      "name": "Orbbec Gemini 336L",
+      "serial_number": "CPCD7530002G",
+      "uid": "61359b",
+      "connection_type": "USB3.2",
+      "firmware_version": "1.6.00",
+      "hardware_version": "0.1",
+      "pid": 2055,
+      "vid": 11205,
+      "backend": "orbbec",
+      "camera_code": "C336L",
+      "protocol_model_verified": true
+    },
+    "devices": [
+      {
+        "id": "orbbec:CPCD7530002G",
+        "index": 0,
+        "name": "Orbbec Gemini 336L",
+        "serial_number": "CPCD7530002G",
+        "uid": "61359b",
+        "connection_type": "USB3.2",
+        "backend": "orbbec",
+        "sdk": "pyorbbecsdk",
+        "sdk_available": true,
+        "camera_code": "C336L",
+        "protocol_model_verified": true
+      }
+    ],
+    "message": "摄像头已连接",
+    "backend": "orbbec"
+  },
+  "condition": {
+    "condition_id": "C336L_D2500_V000_LSTD_P1_CN_R01",
+    "distance_mm": 2500,
+    "view_yaw_deg": 0,
+    "light_id": "LSTD",
+    "pose_id": "P1",
+    "clothing_id": "CN",
+    "repeat_id": 1,
+    "suite": "gemini_natural_clothing"
+  },
+  "dev_only_pass": false,
+  "error": "PermissionError: [WinError 5] 拒绝访问。: 'D:\\\\Desktop\\\\collect human body posture data\\\\body_posture_collector\\\\data\\\\dev_only_validation\\\\20260822_gemini_write_chain_02_orbbec\\\\realanthro_rgbd_v1\\\\collections\\\\dev_only_collection\\\\subjects\\\\S9001\\\\.staging\\\\A20260822T120331522562Z_b75d20655a' -> 'D:\\\\Desktop\\\\collect human body posture data\\\\body_posture_collector\\\\data\\\\dev_only_validation\\\\20260822_gemini_write_chain_02_orbbec\\\\realanthro_rgbd_v1\\\\collections\\\\dev_only_collection\\\\subjects\\\\S9001\\\\cameras\\\\C336L\\\\conditions\\\\C336L_D2500_V000_LSTD_P1_CN_R01\\\\attempts\\\\A20260822T120331522562Z_b75d20655a'"
+}

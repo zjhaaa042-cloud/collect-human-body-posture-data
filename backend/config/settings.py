@@ -14,7 +14,7 @@ class CameraSettings(BaseModel):
 
 
 class VoiceSettings(BaseModel):
-    enabled: bool = True
+    enabled: bool = False
     model_path: str = "models/vosk-model-small-cn-0.22"
     language: str = "zh"
     tts_voice: str = "zh-CN-XiaoxiaoNeural"
@@ -56,7 +56,7 @@ class Settings(BaseModel):
     distance: DistanceSettings = DistanceSettings()
     gui: GUISettings = GUISettings()
 
-    websocket_host: str = "0.0.0.0"
+    websocket_host: str = "127.0.0.1"
     websocket_port: int = 8765
 
     log_level: str = "INFO"

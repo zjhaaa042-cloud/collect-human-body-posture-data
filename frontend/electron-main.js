@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 
 let mainWindow;
@@ -146,6 +147,24 @@ ipcMain.handle('get-app-version', () => {
 
 ipcMain.handle('get-app-path', () => {
   return app.getAppPath();
+});
+
+ipcMain.handle('get-ws-token', () => {
+  const candidates = [
+    path.join(__dirname, '..', '.ws_token'),
+    path.join(process.cwd(), '.ws_token'),
+    path.join(app.getAppPath(), '..', '.ws_token')
+  ];
+  for (const tokenPath of candidates) {
+    try {
+      if (fs.existsSync(tokenPath)) {
+        return fs.readFileSync(tokenPath, 'utf-8').trim();
+      }
+    } catch (error) {
+      console.error(`Failed to read WS token at ${tokenPath}:`, error);
+    }
+  }
+  return '';
 });
 
 ipcMain.handle('close-window', () => {

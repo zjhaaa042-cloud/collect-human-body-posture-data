@@ -1,0 +1,2831 @@
+{
+  "schema_version": "1.0",
+  "backend": "realsense",
+  "camera_code": "CD435I",
+  "device_id": "243722074968",
+  "devices": [
+    {
+      "id": "realsense:243722074968",
+      "backend": "realsense",
+      "index": 0,
+      "name": "Intel RealSense D435I",
+      "serial_number": "243722074968",
+      "firmware_version": "5.15.1.55",
+      "product_line": "D400",
+      "product_id": "0B3A",
+      "usb_type_descriptor": "3.2",
+      "sdk": "pyrealsense2",
+      "sdk_version": "2.54.2.5684",
+      "sdk_available": true,
+      "camera_code": "CD435I",
+      "protocol_model_verified": true
+    }
+  ],
+  "connected": true,
+  "requested_bursts": 100,
+  "completed_bursts": 100,
+  "hard_passed_bursts": 100,
+  "bursts": [
+    {
+      "index": 1,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        6,
+        9,
+        12,
+        15,
+        18
+      ],
+      "device_intervals_ms": [
+        104.2021484375,
+        103.3203125,
+        102.555908203125,
+        101.900146484375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 2,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        22,
+        25,
+        28,
+        31,
+        34
+      ],
+      "device_intervals_ms": [
+        100.709228515625,
+        100.322021484375,
+        100.033203125,
+        99.76171875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 3,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        38,
+        41,
+        44,
+        47,
+        50
+      ],
+      "device_intervals_ms": [
+        98.69384765625,
+        98.19970703125,
+        97.705810546875,
+        97.2119140625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 4,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        54,
+        57,
+        60,
+        63,
+        66
+      ],
+      "device_intervals_ms": [
+        96.059326171875,
+        95.5654296875,
+        96.8818359375,
+        100.1748046875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 5,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        70,
+        73,
+        76,
+        79,
+        82
+      ],
+      "device_intervals_ms": [
+        100.085693359375,
+        100.047607421875,
+        100.00927734375,
+        99.970947265625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 6,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        86,
+        89,
+        92,
+        95,
+        98
+      ],
+      "device_intervals_ms": [
+        99.8818359375,
+        99.84814453125,
+        99.814697265625,
+        99.47509765625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 7,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        102,
+        105,
+        108,
+        111,
+        114
+      ],
+      "device_intervals_ms": [
+        99.296630859375,
+        99.22021484375,
+        99.1435546875,
+        99.067138671875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 8,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        118,
+        121,
+        124,
+        127,
+        130
+      ],
+      "device_intervals_ms": [
+        98.888671875,
+        99.2548828125,
+        100.08935546875,
+        100.093994140625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 9,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        134,
+        137,
+        140,
+        143,
+        146
+      ],
+      "device_intervals_ms": [
+        100.10498046875,
+        100.10986328125,
+        100.114501953125,
+        100.119384765625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 10,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        150,
+        153,
+        156,
+        159,
+        162
+      ],
+      "device_intervals_ms": [
+        100.12939453125,
+        100.083251953125,
+        100.086181640625,
+        100.089111328125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 11,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        166,
+        169,
+        172,
+        175,
+        178
+      ],
+      "device_intervals_ms": [
+        100.095947265625,
+        100.098876953125,
+        100.101806640625,
+        100.104736328125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 12,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        182,
+        185,
+        188,
+        191,
+        194
+      ],
+      "device_intervals_ms": [
+        100.106201171875,
+        100.194091796875,
+        100.204345703125,
+        100.214599609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 13,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        198,
+        201,
+        204,
+        207,
+        210
+      ],
+      "device_intervals_ms": [
+        100.23876953125,
+        100.249267578125,
+        100.25927734375,
+        100.269775390625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 14,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        214,
+        217,
+        220,
+        223,
+        226
+      ],
+      "device_intervals_ms": [
+        100.070556640625,
+        100.070556640625,
+        100.0703125,
+        100.070068359375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 15,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        230,
+        233,
+        236,
+        239,
+        242
+      ],
+      "device_intervals_ms": [
+        100.069580078125,
+        100.069580078125,
+        100.0693359375,
+        100.069091796875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 16,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        246,
+        249,
+        252,
+        255,
+        258
+      ],
+      "device_intervals_ms": [
+        100.077880859375,
+        100.077880859375,
+        100.078125,
+        100.078125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 17,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        262,
+        265,
+        268,
+        271,
+        274
+      ],
+      "device_intervals_ms": [
+        100.078369140625,
+        100.07861328125,
+        100.07861328125,
+        100.078857421875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 18,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        278,
+        281,
+        284,
+        287,
+        290
+      ],
+      "device_intervals_ms": [
+        100.070556640625,
+        100.070556640625,
+        100.070556640625,
+        100.070068359375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 19,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        294,
+        297,
+        300,
+        303,
+        306
+      ],
+      "device_intervals_ms": [
+        100.070068359375,
+        100.06982421875,
+        100.06982421875,
+        100.070556640625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 20,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        310,
+        313,
+        316,
+        319,
+        322
+      ],
+      "device_intervals_ms": [
+        100.068115234375,
+        100.068115234375,
+        100.068115234375,
+        100.06787109375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 21,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        326,
+        329,
+        332,
+        335,
+        338
+      ],
+      "device_intervals_ms": [
+        100.067626953125,
+        100.067626953125,
+        100.067626953125,
+        100.075927734375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 22,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        342,
+        345,
+        348,
+        351,
+        354
+      ],
+      "device_intervals_ms": [
+        100.076171875,
+        100.076171875,
+        100.076416015625,
+        100.076171875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 23,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        358,
+        361,
+        364,
+        367,
+        370
+      ],
+      "device_intervals_ms": [
+        100.07666015625,
+        100.076416015625,
+        100.074951171875,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 24,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        374,
+        377,
+        380,
+        383,
+        386
+      ],
+      "device_intervals_ms": [
+        100.07421875,
+        100.07421875,
+        100.07421875,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 25,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        390,
+        393,
+        396,
+        399,
+        402
+      ],
+      "device_intervals_ms": [
+        100.07421875,
+        100.073974609375,
+        100.072998046875,
+        100.072998046875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 26,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        406,
+        409,
+        412,
+        415,
+        418
+      ],
+      "device_intervals_ms": [
+        100.072998046875,
+        100.072998046875,
+        100.072998046875,
+        100.072998046875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 27,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        422,
+        425,
+        428,
+        431,
+        434
+      ],
+      "device_intervals_ms": [
+        100.072998046875,
+        100.072021484375,
+        100.071533203125,
+        100.0712890625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 28,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        438,
+        441,
+        444,
+        447,
+        450
+      ],
+      "device_intervals_ms": [
+        100.071533203125,
+        100.0712890625,
+        100.071044921875,
+        100.0712890625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 29,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        454,
+        457,
+        460,
+        463,
+        466
+      ],
+      "device_intervals_ms": [
+        100.072509765625,
+        100.075439453125,
+        100.07568359375,
+        100.075439453125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 30,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        470,
+        473,
+        476,
+        479,
+        482
+      ],
+      "device_intervals_ms": [
+        100.07568359375,
+        100.07568359375,
+        100.075439453125,
+        100.07568359375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 31,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        486,
+        489,
+        492,
+        495,
+        498
+      ],
+      "device_intervals_ms": [
+        100.072021484375,
+        100.071533203125,
+        100.0712890625,
+        100.0712890625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 32,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        502,
+        505,
+        508,
+        511,
+        514
+      ],
+      "device_intervals_ms": [
+        100.071044921875,
+        100.0712890625,
+        100.071044921875,
+        100.071044921875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 33,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        518,
+        521,
+        524,
+        527,
+        530
+      ],
+      "device_intervals_ms": [
+        100.072021484375,
+        100.072265625,
+        100.072021484375,
+        100.072021484375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 34,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        534,
+        537,
+        540,
+        543,
+        546
+      ],
+      "device_intervals_ms": [
+        100.072021484375,
+        100.072021484375,
+        100.072021484375,
+        100.072021484375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 35,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        550,
+        553,
+        556,
+        559,
+        562
+      ],
+      "device_intervals_ms": [
+        100.072265625,
+        100.072265625,
+        100.072021484375,
+        100.072265625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 36,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        566,
+        569,
+        572,
+        575,
+        578
+      ],
+      "device_intervals_ms": [
+        100.072265625,
+        100.072021484375,
+        100.072265625,
+        100.072265625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 37,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        582,
+        585,
+        588,
+        591,
+        594
+      ],
+      "device_intervals_ms": [
+        100.072265625,
+        100.072021484375,
+        100.072021484375,
+        100.072021484375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 38,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        598,
+        601,
+        604,
+        607,
+        610
+      ],
+      "device_intervals_ms": [
+        100.07177734375,
+        100.072021484375,
+        100.072021484375,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 39,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        614,
+        617,
+        620,
+        623,
+        626
+      ],
+      "device_intervals_ms": [
+        100.074951171875,
+        100.074951171875,
+        100.074951171875,
+        100.0751953125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 40,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        630,
+        633,
+        636,
+        639,
+        642
+      ],
+      "device_intervals_ms": [
+        100.0751953125,
+        100.075439453125,
+        100.073974609375,
+        100.070556640625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 41,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        646,
+        649,
+        652,
+        655,
+        658
+      ],
+      "device_intervals_ms": [
+        100.070556640625,
+        100.070556640625,
+        100.070556640625,
+        100.0703125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 42,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        662,
+        665,
+        668,
+        671,
+        674
+      ],
+      "device_intervals_ms": [
+        100.070068359375,
+        100.0703125,
+        100.0751953125,
+        100.075439453125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 43,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        678,
+        681,
+        684,
+        687,
+        690
+      ],
+      "device_intervals_ms": [
+        100.075439453125,
+        100.075439453125,
+        100.075439453125,
+        100.075439453125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 44,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        694,
+        697,
+        700,
+        703,
+        706
+      ],
+      "device_intervals_ms": [
+        100.07568359375,
+        100.07275390625,
+        100.0703125,
+        100.0703125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 45,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        710,
+        713,
+        716,
+        719,
+        722
+      ],
+      "device_intervals_ms": [
+        100.070068359375,
+        100.06982421875,
+        100.070068359375,
+        100.06982421875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 46,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        726,
+        729,
+        732,
+        735,
+        738
+      ],
+      "device_intervals_ms": [
+        100.06982421875,
+        100.07177734375,
+        100.071533203125,
+        100.07177734375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 47,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        742,
+        745,
+        748,
+        751,
+        754
+      ],
+      "device_intervals_ms": [
+        100.071533203125,
+        100.07177734375,
+        100.07177734375,
+        100.07177734375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 48,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        758,
+        761,
+        764,
+        767,
+        770
+      ],
+      "device_intervals_ms": [
+        100.075439453125,
+        100.07763671875,
+        100.07763671875,
+        100.07763671875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 49,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        774,
+        777,
+        780,
+        783,
+        786
+      ],
+      "device_intervals_ms": [
+        100.077880859375,
+        100.077880859375,
+        100.078125,
+        100.078125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 50,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        790,
+        793,
+        796,
+        799,
+        802
+      ],
+      "device_intervals_ms": [
+        100.071533203125,
+        100.07177734375,
+        100.071533203125,
+        100.071533203125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 51,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        806,
+        809,
+        812,
+        815,
+        818
+      ],
+      "device_intervals_ms": [
+        100.071533203125,
+        100.071533203125,
+        100.0712890625,
+        100.0712890625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 52,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        822,
+        825,
+        828,
+        831,
+        834
+      ],
+      "device_intervals_ms": [
+        100.07177734375,
+        100.07177734375,
+        100.07177734375,
+        100.07177734375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 53,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        838,
+        841,
+        844,
+        847,
+        850
+      ],
+      "device_intervals_ms": [
+        100.07177734375,
+        100.07177734375,
+        100.07177734375,
+        100.07177734375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 54,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        854,
+        857,
+        860,
+        863,
+        866
+      ],
+      "device_intervals_ms": [
+        100.072998046875,
+        100.072998046875,
+        100.07275390625,
+        100.072998046875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 55,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        870,
+        873,
+        876,
+        879,
+        882
+      ],
+      "device_intervals_ms": [
+        100.072998046875,
+        100.07275390625,
+        100.072998046875,
+        100.072998046875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 56,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        886,
+        889,
+        892,
+        895,
+        898
+      ],
+      "device_intervals_ms": [
+        100.07275390625,
+        100.07275390625,
+        100.072509765625,
+        100.07275390625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 57,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        902,
+        905,
+        908,
+        911,
+        914
+      ],
+      "device_intervals_ms": [
+        100.07275390625,
+        100.072509765625,
+        100.07275390625,
+        100.0732421875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 58,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        918,
+        921,
+        924,
+        927,
+        930
+      ],
+      "device_intervals_ms": [
+        100.0732421875,
+        100.072998046875,
+        100.0732421875,
+        100.072998046875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 59,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        934,
+        937,
+        940,
+        943,
+        946
+      ],
+      "device_intervals_ms": [
+        100.072998046875,
+        100.0732421875,
+        100.073486328125,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 60,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        950,
+        953,
+        956,
+        959,
+        962
+      ],
+      "device_intervals_ms": [
+        100.073974609375,
+        100.073974609375,
+        100.07421875,
+        100.07421875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 61,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        966,
+        969,
+        972,
+        975,
+        978
+      ],
+      "device_intervals_ms": [
+        100.07421875,
+        100.072265625,
+        100.067626953125,
+        100.067626953125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 62,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        982,
+        985,
+        988,
+        991,
+        994
+      ],
+      "device_intervals_ms": [
+        100.0673828125,
+        100.0673828125,
+        100.067138671875,
+        100.067138671875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 63,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        998,
+        1001,
+        1004,
+        1007,
+        1010
+      ],
+      "device_intervals_ms": [
+        100.06689453125,
+        100.077392578125,
+        100.077392578125,
+        100.07763671875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 64,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1014,
+        1017,
+        1020,
+        1023,
+        1026
+      ],
+      "device_intervals_ms": [
+        100.07763671875,
+        100.077880859375,
+        100.077880859375,
+        100.077880859375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 65,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1030,
+        1033,
+        1036,
+        1039,
+        1042
+      ],
+      "device_intervals_ms": [
+        100.07568359375,
+        100.074462890625,
+        100.07470703125,
+        100.07470703125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 66,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1046,
+        1049,
+        1052,
+        1055,
+        1058
+      ],
+      "device_intervals_ms": [
+        100.07470703125,
+        100.07470703125,
+        100.07470703125,
+        100.07470703125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 67,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1062,
+        1065,
+        1068,
+        1071,
+        1074
+      ],
+      "device_intervals_ms": [
+        100.073974609375,
+        100.073974609375,
+        100.073974609375,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 68,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1078,
+        1081,
+        1084,
+        1087,
+        1090
+      ],
+      "device_intervals_ms": [
+        100.073974609375,
+        100.07421875,
+        100.073974609375,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 69,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1094,
+        1097,
+        1100,
+        1103,
+        1106
+      ],
+      "device_intervals_ms": [
+        100.07373046875,
+        100.073974609375,
+        100.073974609375,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 70,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1110,
+        1113,
+        1116,
+        1119,
+        1122
+      ],
+      "device_intervals_ms": [
+        100.073974609375,
+        100.073974609375,
+        100.073974609375,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 71,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1126,
+        1129,
+        1132,
+        1135,
+        1138
+      ],
+      "device_intervals_ms": [
+        100.0712890625,
+        100.07080078125,
+        100.071044921875,
+        100.071044921875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 72,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1142,
+        1145,
+        1148,
+        1151,
+        1154
+      ],
+      "device_intervals_ms": [
+        100.07080078125,
+        100.07080078125,
+        100.070556640625,
+        100.07275390625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 73,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1158,
+        1161,
+        1164,
+        1167,
+        1170
+      ],
+      "device_intervals_ms": [
+        100.073974609375,
+        100.073974609375,
+        100.07421875,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 74,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1174,
+        1177,
+        1180,
+        1183,
+        1186
+      ],
+      "device_intervals_ms": [
+        100.07421875,
+        100.07421875,
+        100.073974609375,
+        100.073486328125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 75,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1190,
+        1193,
+        1196,
+        1199,
+        1202
+      ],
+      "device_intervals_ms": [
+        100.073486328125,
+        100.0732421875,
+        100.073486328125,
+        100.073486328125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 76,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1206,
+        1209,
+        1212,
+        1215,
+        1218
+      ],
+      "device_intervals_ms": [
+        100.073486328125,
+        100.0732421875,
+        100.06884765625,
+        100.066650390625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 77,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1222,
+        1225,
+        1228,
+        1231,
+        1234
+      ],
+      "device_intervals_ms": [
+        100.066162109375,
+        100.066162109375,
+        100.06591796875,
+        100.065673828125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 78,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1238,
+        1241,
+        1244,
+        1247,
+        1250
+      ],
+      "device_intervals_ms": [
+        100.0654296875,
+        100.06884765625,
+        100.075927734375,
+        100.075927734375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 79,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1254,
+        1257,
+        1260,
+        1263,
+        1266
+      ],
+      "device_intervals_ms": [
+        100.076416015625,
+        100.076171875,
+        100.076416015625,
+        100.076416015625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 80,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1270,
+        1273,
+        1276,
+        1279,
+        1282
+      ],
+      "device_intervals_ms": [
+        100.076904296875,
+        100.071044921875,
+        100.06982421875,
+        100.070068359375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 81,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1286,
+        1289,
+        1292,
+        1295,
+        1298
+      ],
+      "device_intervals_ms": [
+        100.06982421875,
+        100.06982421875,
+        100.06982421875,
+        100.069580078125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 82,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1302,
+        1305,
+        1308,
+        1311,
+        1314
+      ],
+      "device_intervals_ms": [
+        100.069580078125,
+        100.069580078125,
+        100.069580078125,
+        100.0693359375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 83,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1318,
+        1321,
+        1324,
+        1327,
+        1330
+      ],
+      "device_intervals_ms": [
+        100.069091796875,
+        100.069091796875,
+        100.069091796875,
+        100.06884765625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 84,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1334,
+        1337,
+        1340,
+        1343,
+        1346
+      ],
+      "device_intervals_ms": [
+        100.072998046875,
+        100.072998046875,
+        100.072998046875,
+        100.0732421875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 85,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1350,
+        1353,
+        1356,
+        1359,
+        1362
+      ],
+      "device_intervals_ms": [
+        100.072998046875,
+        100.072998046875,
+        100.072998046875,
+        100.072998046875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 86,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1367,
+        1370,
+        1373,
+        1376,
+        1379
+      ],
+      "device_intervals_ms": [
+        100.078857421875,
+        100.078857421875,
+        100.078857421875,
+        100.0791015625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 87,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1383,
+        1386,
+        1389,
+        1392,
+        1395
+      ],
+      "device_intervals_ms": [
+        100.079345703125,
+        100.07958984375,
+        100.079345703125,
+        100.077392578125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 88,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1399,
+        1402,
+        1405,
+        1408,
+        1411
+      ],
+      "device_intervals_ms": [
+        100.07080078125,
+        100.07080078125,
+        100.070556640625,
+        100.070556640625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 89,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1415,
+        1418,
+        1421,
+        1424,
+        1427
+      ],
+      "device_intervals_ms": [
+        100.07080078125,
+        100.070556640625,
+        100.0703125,
+        100.070556640625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 90,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1431,
+        1434,
+        1437,
+        1440,
+        1443
+      ],
+      "device_intervals_ms": [
+        100.0703125,
+        100.0703125,
+        100.0703125,
+        100.0703125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 91,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1447,
+        1450,
+        1453,
+        1456,
+        1459
+      ],
+      "device_intervals_ms": [
+        100.070068359375,
+        100.070068359375,
+        100.069091796875,
+        100.06689453125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 92,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1463,
+        1466,
+        1469,
+        1472,
+        1475
+      ],
+      "device_intervals_ms": [
+        100.066650390625,
+        100.066650390625,
+        100.066162109375,
+        100.06640625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 93,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1479,
+        1482,
+        1485,
+        1488,
+        1491
+      ],
+      "device_intervals_ms": [
+        100.06591796875,
+        100.065673828125,
+        100.075439453125,
+        100.075439453125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 94,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1495,
+        1498,
+        1501,
+        1504,
+        1507
+      ],
+      "device_intervals_ms": [
+        100.07568359375,
+        100.07568359375,
+        100.075927734375,
+        100.075927734375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 95,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1511,
+        1514,
+        1517,
+        1520,
+        1523
+      ],
+      "device_intervals_ms": [
+        100.076171875,
+        100.073974609375,
+        100.07373046875,
+        100.073486328125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 96,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1527,
+        1530,
+        1533,
+        1536,
+        1539
+      ],
+      "device_intervals_ms": [
+        100.07373046875,
+        100.07373046875,
+        100.07373046875,
+        100.073974609375
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 97,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1543,
+        1546,
+        1549,
+        1552,
+        1555
+      ],
+      "device_intervals_ms": [
+        100.073974609375,
+        100.07080078125,
+        100.07080078125,
+        100.071044921875
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 98,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1560,
+        1563,
+        1566,
+        1569,
+        1572
+      ],
+      "device_intervals_ms": [
+        100.07080078125,
+        100.07080078125,
+        100.07080078125,
+        100.070556640625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 99,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1576,
+        1579,
+        1582,
+        1585,
+        1588
+      ],
+      "device_intervals_ms": [
+        100.070556640625,
+        100.07080078125,
+        100.070556640625,
+        100.07080078125
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    },
+    {
+      "index": 100,
+      "status": "WARN",
+      "hard_pass": true,
+      "failure_codes": [],
+      "warning_codes": [
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+        "HUMAN_CONTENT_MANUAL_REVIEW"
+      ],
+      "frame_numbers": [
+        1592,
+        1595,
+        1598,
+        1601,
+        1604
+      ],
+      "device_intervals_ms": [
+        100.070556640625,
+        100.070556640625,
+        100.070556640625,
+        100.070556640625
+      ],
+      "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+    }
+  ],
+  "hardware_pass": true
+}

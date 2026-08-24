@@ -7,7 +7,7 @@
     "start": "vite --host 127.0.0.1 --port 3000 --open",
     "start:no-open": "vite --host 127.0.0.1 --port 3000",
     "build": "vite build",
-    "test": "echo \"No frontend tests configured\"",
+    "test": "node --test src/protocol/protocolUtils.test.mjs",
     "eject": "react-scripts eject",
     "electron:dev": "concurrently \"npm run start:no-open\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "npm run build && electron-builder"
@@ -31,7 +31,8 @@
     "productName": "体态数据采集系统",
     "files": [
       "build/**/*",
-      "electron-main.js"
+      "electron-main.js",
+      "preload.js"
     ],
     "directories": {
       "buildResources": "assets"

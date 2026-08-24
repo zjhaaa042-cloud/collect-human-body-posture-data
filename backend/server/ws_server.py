@@ -1,18 +1,44 @@
 import asyncio
+import hashlib
 import json
+import logging
 import re
 import secrets
-import ipaddress
+import time
+from dataclasses import asdict, is_dataclass
+from pathlib import Path
+from datetime import datetime, timezone
+import numpy as np
 import websockets
 from websockets.http11 import Response
 from websockets.datastructures import Headers
-from typing import Set, Callable, Any
-from urllib.parse import urlparse
+from typing import Set, Callable, Any, Mapping, Optional
 from loguru import logger
 
 from ..core.camera_manager import CameraManager
+from ..core.camera_adapters import (
+    CameraAdapterRegistry,
+    FrameBundle,
+    OrbbecCameraAdapter,
+    RealSenseCameraAdapter,
+)
 from ..core.depth_analyzer import DepthAnalyzer, DistanceStatus
 from ..core.data_collector import DataCollector, CaptureConfig
+from ..core.protocol_store import (
+    IncompleteSubjectError,
+    ProtocolStore,
+    ProtocolStoreError,
+)
+from ..protocol import (
+    Condition,
+    full31_no_lux,
+    full36,
+    format_condition_id,
+    gemini27,
+    measurement_definitions,
+    primary3,
+    validate_subject_id,
+)
 from ..voice.recognizer import VoiceRecognizer
 from ..voice.synthesizer import VoiceSynthesizer
 from ..voice.command_parser import VoiceCommandParser, VoiceCommand
@@ -46,6 +72,89 @@ _MAX_AUTO_DISTANCE_DELTA_MM = 1000.0
 _MAX_AUTO_CAPTURE_COUNT = 100
 _MAX_AUTO_CAPTURE_INTERVAL_SEC = 60.0
 
+_PROTOCOL_VERSION = "RealAnthro-RGBD-v1.0"
+_DEFAULT_PROTOCOL_PROFILE = "full31_no_lux"
+_PROTOCOL_PROFILES = {
+    "primary3": primary3,
+    "gemini27": gemini27,
+    "full31_no_lux": full31_no_lux,
+    "full36": full36,
+}
+_PROFILE_NAMES_ZH = {
+    "primary3": "核心 3 条（联调）",
+    "gemini27": "Gemini 27 条",
+    "full31_no_lux": "Full-31（当前推荐，无照度计）",
+    "full36": "Full-36（需照度计与受控灯光）",
+}
+_CAMERA_BACKEND_BY_CODE = {"C336L": "orbbec", "CD435I": "realsense"}
+_OPERATOR_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+_PROTOCOL_BURST_FRAMES = 5
+_PROTOCOL_BURST_INTERVAL_SEC = 0.15
+_PROTOCOL_QC_VERSION = "realanthro-qc-pilot-v1"
+_REVIEW_EVIDENCE_TOKEN_TTL_SEC = 600.0
+_REQUIRED_OPERATOR_CONFIRMATIONS = (
+    "distance_marker",
+    "pose_view_clothing",
+    "full_body_visible",
+)
+_REQUIRED_QC_CHECK_COUNTS = {
+    "BURST_FRAME_COUNT": 1,
+    "REQUIRED_MODALITIES": 5,
+    "IMAGE_FORMAT_AND_SHAPE": 5,
+    "CALIBRATION_COMPLETE": 5,
+    "DEPTH_RAW_VALID_RATIO": 5,
+    "DEPTH_ALIGNED_VALID_RATIO": 5,
+    "STREAM_TIMESTAMPS_AND_SKEW": 5,
+    "STREAM_FRAME_NUMBERS_PRESENT": 5,
+    "CALIBRATION_STABLE_ACROSS_BURST": 1,
+    "FRAME_NUMBERS_STRICTLY_INCREASING": 1,
+    "BURST_DEVICE_INTERVAL_HARD": 1,
+    "HUMAN_CONTENT_MANUAL_REVIEW": 1,
+}
+
+_VIEW_INSTRUCTIONS = {
+    0: "V000 正面朝向相机；脚中心对准 BODY_CENTER。",
+    90: "V090 按角度地垫从 V000 沿俯视顺时针方向转到 90°；左侧面对相机。",
+    180: "V180 背面朝向相机；不要回头。",
+    270: "V270 按角度地垫从 V000 沿俯视顺时针方向转到 270°；右侧面对相机。",
+}
+_POSE_INSTRUCTIONS = {
+    "P1": (
+        "Primary A-pose：双脚约肩宽、身体直立、目视前方；双臂离躯干 "
+        "20–30°，肘自然伸直、手掌自然；不挺胸、不收腹、正常呼吸。"
+    ),
+    "P2": "Natural pose：双脚自然站立，双手自然下垂，不刻意展开手臂。",
+    "P3": "Wide A-pose：在 P1 基础上将双臂展开约 40–45°。",
+}
+_CLOTHING_INSTRUCTIONS = {
+    "CF": (
+        "Controlled fitted：赤脚，统一哑光贴身上衣和贴身短裤/运动裤；"
+        "无外套、裙子、宽松衣物、围巾或大包。"
+    ),
+    "CN": "Natural clothing：保留到场日常衣着，但必须脱鞋并移除大包、围巾等附件。",
+}
+
+
+class _WebSocketHandshakeNoiseFilter(logging.Filter):
+    def filter(self, record):
+        if record.getMessage() != "opening handshake failed" or not record.exc_info:
+            return True
+        exc = record.exc_info[1]
+        if not isinstance(exc, websockets.exceptions.InvalidMessage):
+            return True
+        cause = exc.__cause__
+        return not (
+            isinstance(cause, EOFError)
+            and "connection closed while reading HTTP request line" in str(cause)
+        )
+
+
+def _get_websocket_logger():
+    ws_logger = logging.getLogger("body_posture.websockets")
+    if not any(isinstance(item, _WebSocketHandshakeNoiseFilter) for item in ws_logger.filters):
+        ws_logger.addFilter(_WebSocketHandshakeNoiseFilter())
+    return ws_logger
+
 
 def _is_local_address(remote_address) -> bool:
     if not remote_address:
@@ -65,19 +174,7 @@ def _is_local_connection(connection) -> bool:
 
 
 def _is_allowed_auth_origin(origin: str) -> bool:
-    if not origin:
-        return False
-    if origin in _ALLOWED_AUTH_ORIGINS:
-        return True
-    try:
-        parsed = urlparse(origin)
-        if parsed.scheme not in {"http", "https"} or parsed.port != 3000:
-            return False
-        host = parsed.hostname or ""
-        ip = ipaddress.ip_address(host)
-        return ip.is_private or ip.is_loopback
-    except Exception:
-        return False
+    return bool(origin and origin in _ALLOWED_AUTH_ORIGINS)
 
 
 def _cors_headers_for_origin(origin: str):
@@ -110,12 +207,41 @@ class WebSocketServer:
 
         self.settings = get_settings()
         self.camera = CameraManager()
+        self.camera_registry = CameraAdapterRegistry(
+            orbbec=OrbbecCameraAdapter(self.camera),
+            realsense=RealSenseCameraAdapter(),
+        )
+        self.active_camera_adapter = self.camera_registry.adapters["orbbec"]
         self.depth_analyzer = DepthAnalyzer(
             target_distance_mm=self.settings.distance.target_distance_mm,
             tolerance_mm=self.settings.distance.tolerance_mm,
             roi_ratio=self.settings.distance.roi_ratio
         )
         self.data_collector = DataCollector(self.settings.storage.output_dir)
+        protocol_root = (
+            Path(self.settings.storage.output_dir)
+            / "realanthro_rgbd_v1"
+            / "collections"
+            / "default_collection"
+        )
+        self.protocol_store = ProtocolStore(
+            protocol_root,
+            dataset_phase="capture",
+        )
+        recovery_report = getattr(
+            self.protocol_store, "startup_recovery_report", {}
+        ) or {}
+        if recovery_report.get("errors"):
+            logger.error(
+                f"Protocol storage startup recovery reported errors: "
+                f"{recovery_report['errors']}"
+            )
+        elif recovery_report.get("subjects_changed"):
+            logger.warning(
+                "Protocol storage reconciled interrupted work at startup: "
+                f"{recovery_report}"
+            )
+        self.active_protocol_subject_id = None
         self.frame_processor = FrameProcessor(
             preview_size=(self.settings.gui.preview_width, self.settings.gui.preview_height),
             jpeg_quality=self.settings.gui.jpeg_quality
@@ -124,6 +250,7 @@ class WebSocketServer:
         self.voice_recognizer = None
         self.voice_synthesizer = None
         self.voice_parser = VoiceCommandParser()
+        self.voice_protocol_armed = False
         self.loop = None  # Store reference to main event loop
 
         self.is_previewing = False
@@ -131,6 +258,7 @@ class WebSocketServer:
         self.is_shutting_down = False
         self.capture_lock = asyncio.Lock()
         self.camera_lock = asyncio.Lock()
+        self.camera_operation_lock = asyncio.Lock()
         self.preview_task = None
         self.auto_capture_enabled = False
         self.auto_capture_options = {}
@@ -178,17 +306,36 @@ class WebSocketServer:
     def _on_voice_command(self, text: str):
         command = self.voice_parser.execute_command(text)
         if command == VoiceCommand.START_CAPTURE:
+            if self.active_protocol_subject_id and not self.voice_protocol_armed:
+                logger.info("Ignored protocol voice capture: voice control is not armed")
+                return
             if self.loop and not self.loop.is_closed():
                 try:
-                    asyncio.run_coroutine_threadsafe(self._handle_capture(), self.loop)
+                    if self.active_protocol_subject_id:
+                        state = self._protocol_subject_state(self.active_protocol_subject_id)
+                        condition_id = state.get("next_condition_id")
+                        coroutine = self._capture_protocol_condition(
+                            None,
+                            {"condition_id": condition_id},
+                        )
+                    else:
+                        coroutine = self._handle_capture()
+                    asyncio.run_coroutine_threadsafe(coroutine, self.loop)
                 except Exception:
                     pass
         elif command == VoiceCommand.STOP_CAPTURE:
             self.is_capturing = False
         elif command == VoiceCommand.FINISH:
+            if self.active_protocol_subject_id and not self.voice_protocol_armed:
+                logger.info("Ignored protocol voice finish: voice control is not armed")
+                return
             if self.loop and not self.loop.is_closed():
                 try:
-                    asyncio.run_coroutine_threadsafe(self._handle_finish(), self.loop)
+                    if self.active_protocol_subject_id:
+                        coroutine = self._complete_protocol_subject(None, {})
+                    else:
+                        coroutine = self._handle_finish()
+                    asyncio.run_coroutine_threadsafe(coroutine, self.loop)
                 except Exception:
                     pass
 
@@ -205,6 +352,2191 @@ class WebSocketServer:
             min_color_brightness=self.settings.storage.min_color_brightness,
             max_color_brightness=self.settings.storage.max_color_brightness
         )
+
+    @staticmethod
+    def _jsonable(value: Any) -> Any:
+        if is_dataclass(value):
+            return {
+                key: WebSocketServer._jsonable(item)
+                for key, item in asdict(value).items()
+            }
+        if isinstance(value, Mapping):
+            return {
+                str(key): WebSocketServer._jsonable(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple, set)):
+            return [WebSocketServer._jsonable(item) for item in value]
+        if hasattr(value, "item"):
+            try:
+                return value.item()
+            except Exception:
+                pass
+        return value
+
+    @staticmethod
+    def _condition_payload(condition) -> dict:
+        yaw = int(condition.view_yaw_deg)
+        view_instruction = _VIEW_INSTRUCTIONS.get(
+            yaw,
+            (
+                f"V{yaw:03d}：以 V000 正面为起点，按角度地垫的俯视顺时针"
+                f"方向转到 {yaw}°；禁止凭感觉调整。"
+            ),
+        )
+        return {
+            "condition_id": format_condition_id(condition),
+            **asdict(condition),
+            "view_instruction": view_instruction,
+            "pose_instruction": _POSE_INSTRUCTIONS[condition.pose_id],
+            "clothing_instruction": _CLOTHING_INSTRUCTIONS[condition.clothing_id],
+            "distance_instruction": (
+                f"脚中心对准距当前相机光心地面投影 {condition.distance_mm} mm 的"
+                "BODY_CENTER 标线。"
+            ),
+            "reposition_instruction": (
+                "受试者必须完全离开站位区，再重新进入并重新对齐脚位。"
+                if condition.repeat_id > 1
+                else "首次站位，无离场重入要求。"
+            ),
+        }
+
+    def _profile_conditions(self, profile_id: str):
+        try:
+            builder = _PROTOCOL_PROFILES[profile_id]
+        except KeyError as exc:
+            raise ValueError(f"未知条件矩阵: {profile_id}") from exc
+        return builder()
+
+    @staticmethod
+    def _condition_from_payload(payload: Mapping[str, Any]) -> Condition:
+        """Rebuild a frozen Condition while ignoring display-only snapshot keys."""
+
+        metadata = payload.get("metadata")
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        return Condition(
+            camera_code=str(payload["camera_code"]),
+            distance_mm=int(
+                payload.get("distance_mm", payload.get("distance_nominal_mm"))
+            ),
+            view_yaw_deg=int(payload["view_yaw_deg"]),
+            light_id=str(payload.get("light_id", "LSTD")),
+            pose_id=str(payload.get("pose_id", "P1")),
+            clothing_id=str(payload.get("clothing_id", "CF")),
+            repeat_id=int(payload.get("repeat_id", 1)),
+            suite=str(payload.get("suite") or metadata.get("suite") or "snapshot"),
+        )
+
+    def _subject_conditions(self, raw_state: Mapping[str, Any]):
+        """Use the immutable subject snapshot; registry is only for new subjects."""
+
+        snapshot = raw_state.get("protocol_snapshot")
+        snapshot_conditions = (
+            snapshot.get("conditions") if isinstance(snapshot, Mapping) else None
+        )
+        if isinstance(snapshot_conditions, list) and snapshot_conditions:
+            conditions = tuple(
+                self._condition_from_payload(item)
+                for item in snapshot_conditions
+                if isinstance(item, Mapping)
+            )
+            expected_ids = list(raw_state.get("expected_condition_ids") or [])
+            actual_ids = [format_condition_id(item) for item in conditions]
+            if actual_ids != expected_ids:
+                raise ProtocolStoreError("协议快照条件顺序/ID 与受试者状态不一致")
+            return conditions
+        return self._profile_conditions(str(raw_state["profile_id"]))
+
+    def _frozen_subject_qc_policy(
+        self, raw_state: Mapping[str, Any], condition_id: str
+    ) -> dict:
+        snapshot = raw_state.get("protocol_snapshot")
+        capture_policy = (
+            snapshot.get("capture_policy") if isinstance(snapshot, Mapping) else None
+        )
+        bodies = (
+            capture_policy.get("qc_policy_by_condition")
+            if isinstance(capture_policy, Mapping)
+            else None
+        )
+        hashes = (
+            capture_policy.get("qc_policy_sha256_by_condition")
+            if isinstance(capture_policy, Mapping)
+            else None
+        )
+        policy = bodies.get(condition_id) if isinstance(bodies, Mapping) else None
+        expected_hash = hashes.get(condition_id) if isinstance(hashes, Mapping) else None
+        if not isinstance(policy, Mapping) or not expected_hash:
+            raise ProtocolStoreError("受试者协议快照缺少该条件的冻结 QC policy")
+        normalized = json.loads(json.dumps(policy, ensure_ascii=False))
+        if not secrets.compare_digest(
+            self._canonical_json_sha256(normalized), str(expected_hash)
+        ):
+            raise ProtocolStoreError("受试者冻结 QC policy 哈希不一致")
+        return normalized
+
+    def _confirmation_nonce(self, subject_id: str, condition_id: str) -> str:
+        nonces = getattr(self, "_protocol_confirmation_nonces", None)
+        if nonces is None:
+            nonces = {}
+            self._protocol_confirmation_nonces = nonces
+        key = (subject_id, condition_id)
+        if key not in nonces:
+            nonces[key] = secrets.token_urlsafe(18)
+        return nonces[key]
+
+    def _mark_protocol_reconciliation_required(self, subject_id: str) -> None:
+        subjects = getattr(self, "_protocol_reconciliation_required_subjects", None)
+        if subjects is None:
+            subjects = set()
+            self._protocol_reconciliation_required_subjects = subjects
+        subjects.add(subject_id)
+
+    def _protocol_reconciliation_required(self, subject_id: str) -> bool:
+        return subject_id in getattr(
+            self, "_protocol_reconciliation_required_subjects", set()
+        )
+
+    def _assert_protocol_subject_writable(self, subject_id: str) -> None:
+        if self._protocol_reconciliation_required(subject_id):
+            raise ProtocolStoreError(
+                "该受试者存在已落盘但待恢复的账本事务；请停止操作并重启采集服务"
+            )
+
+    def _protocol_catalog(self) -> dict:
+        profiles = []
+        for profile_id, builder in _PROTOCOL_PROFILES.items():
+            profiles.append({
+                "profile_id": profile_id,
+                "name": _PROFILE_NAMES_ZH[profile_id],
+                "condition_count": len(builder()),
+                "requires_lux": profile_id == "full36",
+                "recommended": profile_id == _DEFAULT_PROTOCOL_PROFILE,
+                "available": profile_id != "full36",
+                "unavailable_reason": (
+                    "当前未配置照度计和可复现受控灯光"
+                    if profile_id == "full36"
+                    else ""
+                ),
+            })
+        measurements = []
+        for definition in measurement_definitions():
+            item = asdict(definition)
+            item["field_names"] = list(item["field_names"])
+            item["required_equipment"] = list(item["required_equipment"])
+            measurements.append(item)
+        recovery = getattr(self.protocol_store, "startup_recovery_report", {}) or {}
+        camera_readiness = {}
+        registry = getattr(self, "camera_registry", None)
+        if registry is not None:
+            for camera_code, backend in _CAMERA_BACKEND_BY_CODE.items():
+                adapter = registry.adapters.get(backend)
+                status = adapter.get_status() if adapter is not None else {}
+                devices = adapter.list_devices() if adapter is not None else []
+                matching = [
+                    item for item in devices if item.get("camera_code") == camera_code
+                ]
+                camera_readiness[camera_code] = {
+                    "backend": backend,
+                    "sdk_available": bool(status.get("sdk_available", True)),
+                    "device_detected": bool(matching),
+                    "connected": bool(
+                        status.get("connected")
+                        and (status.get("device") or {}).get("camera_code") == camera_code
+                    ),
+                    "devices": matching,
+                }
+        return {
+            "protocol_version": _PROTOCOL_VERSION,
+            "profiles": profiles,
+            "measurements": measurements,
+            "default_profile_id": _DEFAULT_PROTOCOL_PROFILE,
+            "burst_frame_count": _PROTOCOL_BURST_FRAMES,
+            "anchor_frame": "F03",
+            "not_in_capture_gate": ["SMPL-X", "dataset_release", "dataset_sealing"],
+            "camera_readiness": camera_readiness,
+            "storage_recovery": {
+                "subjects_scanned": recovery.get("subjects_scanned", 0),
+                "subjects_changed": recovery.get("subjects_changed", 0),
+                "recovered_commits": recovery.get("recovered_commits", 0),
+                "aborted_attempts": recovery.get("aborted_attempts", 0),
+                "write_failed_attempts": recovery.get("write_failed_attempts", 0),
+                "error_count": len(recovery.get("errors", [])),
+                "errors": recovery.get("errors", []),
+            },
+        }
+
+    def _raw_subject_states(self) -> list:
+        list_method = getattr(self.protocol_store, "list_subjects", None)
+        if callable(list_method):
+            return list(list_method())
+
+        # Compatibility with an older ProtocolStore during an in-place upgrade.
+        roots = [
+            getattr(self.protocol_store, "phase_dir", None),
+            getattr(self.protocol_store, "base_dir", Path(".")) / "subjects",
+        ]
+        states = []
+        seen = set()
+        for root in roots:
+            if not root or not Path(root).exists():
+                continue
+            for subject_dir in Path(root).iterdir():
+                if not subject_dir.is_dir() or subject_dir.name in seen:
+                    continue
+                try:
+                    state = self.protocol_store.get_subject_state(subject_dir.name)
+                except Exception:
+                    continue
+                seen.add(subject_dir.name)
+                states.append(state)
+        return sorted(
+            states,
+            key=lambda item: (str(item.get("created_at", "")), item.get("subject_id", "")),
+        )
+
+    def _measurement_records_from_state(self, anthropometry: Mapping[str, Any]) -> list:
+        direct_records = anthropometry.get("records")
+        if isinstance(direct_records, list):
+            return direct_records
+        measurements = anthropometry.get("measurements")
+        if not isinstance(measurements, Mapping):
+            return []
+
+        records = []
+        for definition in measurement_definitions():
+            for field_name in definition.field_names:
+                source = measurements.get(field_name)
+                if source is None and len(definition.field_names) == 1:
+                    source = measurements.get(definition.measurement_id)
+                if not isinstance(source, Mapping):
+                    continue
+                records.append({
+                    "measurement_id": definition.measurement_id,
+                    "field_name": field_name,
+                    "m1": source.get("measurement_1"),
+                    "m2": source.get("measurement_2"),
+                    "m3": source.get("measurement_3"),
+                    "final_value": source.get("final_value"),
+                })
+        return records
+
+    def _protocol_subject_state(self, subject_id: str) -> dict:
+        raw = self.protocol_store.get_subject_state(subject_id)
+        profile_id = raw["profile_id"]
+        conditions = []
+        captured = 0
+        for condition in self._subject_conditions(raw):
+            payload = self._condition_payload(condition)
+            condition_state = raw.get("conditions", {}).get(payload["condition_id"], {})
+            attempt_ids = list(condition_state.get("attempt_ids", []))
+            latest_attempt_id = attempt_ids[-1] if attempt_ids else None
+            latest_attempt = raw.get("attempts", {}).get(latest_attempt_id, {})
+            review_attempt_id = None
+            if condition_state.get("status") == "REVIEW_REQUIRED":
+                review_attempt_id = next(
+                    (
+                        attempt_id
+                        for attempt_id in reversed(attempt_ids)
+                        if raw.get("attempts", {}).get(attempt_id, {}).get("quality_status")
+                        == "WARN"
+                        and raw.get("attempts", {}).get(attempt_id, {}).get(
+                            "review_status"
+                        )
+                        in {None, "PENDING"}
+                    ),
+                    None,
+                )
+            payload.update({
+                "status": condition_state.get("status", "PENDING"),
+                "attempt_ids": attempt_ids,
+                "accepted_attempt_id": condition_state.get("accepted_attempt_id"),
+                "latest_attempt_id": latest_attempt_id,
+                "review_attempt_id": review_attempt_id,
+                "qc": latest_attempt.get("qc")
+                if isinstance(latest_attempt, Mapping)
+                else None,
+                "review": latest_attempt.get("review")
+                if isinstance(latest_attempt, Mapping)
+                else None,
+                "confirmation_nonce": self._confirmation_nonce(
+                    subject_id, payload["condition_id"]
+                ),
+            })
+            if payload["status"] == "CAPTURED":
+                captured += 1
+            conditions.append(payload)
+
+        expected = len(conditions)
+        missing = expected - captured
+        next_condition = next(
+            (item for item in conditions if item["status"] != "CAPTURED"),
+            None,
+        )
+        anthro_raw = dict(raw.get("anthropometry", {}))
+        anthro_complete = anthro_raw.get("status") == "COMPLETE"
+        missing_required = [] if anthro_complete else [f"M{index:02d}" for index in range(1, 14)]
+        blockers = []
+        if missing:
+            blockers.append(f"尚有 {missing} 个采集条件未通过")
+        if not anthro_complete:
+            blockers.append("M01–M13 人工测量尚未完整通过校验")
+        completed = raw.get("status") == "COMPLETE"
+        integrity_report = None
+        if (not missing and anthro_complete) or completed:
+            integrity_report = self.protocol_store.completion_report(subject_id)
+            if integrity_report.get("integrity_errors"):
+                blockers.extend(integrity_report["integrity_errors"])
+            if integrity_report.get("status") == "CORRUPTED":
+                completed = False
+                blockers.insert(0, "已完成数据的完整性复核失败，状态为 CORRUPTED")
+        percent = round(captured * 100.0 / expected, 1) if expected else 0.0
+        protocol_snapshot = raw.get("protocol_snapshot")
+        frozen_measurements = (
+            protocol_snapshot.get("measurements", [])
+            if isinstance(protocol_snapshot, Mapping)
+            else []
+        )
+        return {
+            "subject_id": raw["subject_id"],
+            "reconciliation_required": self._protocol_reconciliation_required(
+                raw["subject_id"]
+            ),
+            "status": (
+                "CORRUPTED"
+                if integrity_report and integrity_report.get("status") == "CORRUPTED"
+                else raw.get("status", "ACTIVE")
+            ),
+            "profile_id": profile_id,
+            "protocol_version": raw.get("protocol_version", _PROTOCOL_VERSION),
+            "protocol_snapshot_sha256": raw.get("protocol_snapshot_sha256")
+            or (raw.get("protocol_snapshot") or {}).get("sha256"),
+            "subject_metadata": raw.get("subject_metadata", {}),
+            "measurement_definitions": frozen_measurements,
+            "created_at": raw.get("created_at"),
+            "completed_at": raw.get("completed_at"),
+            "conditions": conditions,
+            "next_condition_id": next_condition["condition_id"] if next_condition else None,
+            "next_camera_code": next_condition["camera_code"] if next_condition else None,
+            "progress": {
+                "expected": expected,
+                "captured": captured,
+                "missing": missing,
+                "percent": percent,
+            },
+            "anthropometry": {
+                **anthro_raw,
+                "records": self._measurement_records_from_state(anthro_raw),
+                "missing_required": missing_required,
+                "complete": anthro_complete,
+            },
+            "completion": {
+                "can_complete": not blockers and not completed,
+                "blockers": blockers,
+                "completed": completed,
+                "completed_at": raw.get("completed_at"),
+                "status": integrity_report.get("status")
+                if integrity_report
+                else ("COMPLETE" if completed else "INCOMPLETE"),
+                "integrity_errors": integrity_report.get("integrity_errors", [])
+                if integrity_report
+                else [],
+            },
+        }
+
+    def _apply_protocol_distance_target(
+        self,
+        state: Mapping[str, Any],
+        condition_id: Optional[str] = None,
+    ) -> Optional[Mapping[str, Any]]:
+        target_id = condition_id or state.get("next_condition_id")
+        condition = next(
+            (
+                item
+                for item in state.get("conditions", [])
+                if item.get("condition_id") == target_id
+            ),
+            None,
+        )
+        if not condition:
+            return None
+        if not hasattr(self, "depth_analyzer"):
+            return condition
+        target = float(condition["distance_mm"])
+        if self.depth_analyzer.target != target:
+            self.depth_analyzer.target = target
+            self.depth_analyzer.tolerance = max(150.0, target * 0.10)
+            self.depth_analyzer.reset()
+        return condition
+
+    async def _send_protocol_state(self, websocket, subject_id: str):
+        state = self._protocol_subject_state(subject_id)
+        if subject_id == self.active_protocol_subject_id:
+            self._apply_protocol_distance_target(state)
+        message = {"type": "protocol_subject_state", "data": state}
+        if websocket is not None:
+            await websocket.send(json.dumps(message, ensure_ascii=False))
+        else:
+            await self._broadcast(message)
+        return state
+
+    async def _set_protocol_preview_condition(self, websocket, data: dict):
+        subject_id = validate_subject_id(
+            str(data.get("subject_id", "")).strip().upper()
+        )
+        condition_id = str(data.get("condition_id", "")).strip()
+        if not condition_id:
+            raise ValueError("预览条件不能为空")
+        if subject_id != self.active_protocol_subject_id:
+            raise ValueError("预览条件必须属于当前活动受试者")
+        state = self._protocol_subject_state(subject_id)
+        condition = self._apply_protocol_distance_target(state, condition_id)
+        if condition is None:
+            raise ValueError("预览条件不属于当前受试者的矩阵")
+        result = {
+            "subject_id": subject_id,
+            "condition_id": condition_id,
+            "distance_mm": int(condition["distance_mm"]),
+        }
+        await self._emit_protocol_message(
+            websocket, {"type": "protocol_preview_condition", "data": result}
+        )
+        return result
+
+    async def _emit_protocol_message(self, websocket, message: dict):
+        """Keep subject state scoped to the requesting client.
+
+        Voice-triggered commands have no requesting socket and are broadcast;
+        browser commands are always answered only on their own connection.
+        """
+
+        if websocket is None:
+            await self._broadcast(message)
+        else:
+            await websocket.send(json.dumps(message, ensure_ascii=False))
+
+    async def _send_protocol_subjects(self, websocket):
+        subjects = []
+        for raw in self._raw_subject_states():
+            try:
+                state = self._protocol_subject_state(raw["subject_id"])
+            except Exception as exc:
+                logger.error(
+                    f"Subject {raw.get('subject_id')} is unreadable and remains visible: {exc}"
+                )
+                expected = int(raw.get("expected_conditions", 0) or 0)
+                captured = int(raw.get("captured_conditions", 0) or 0)
+                subjects.append({
+                    "subject_id": raw.get("subject_id"),
+                    "status": "UNREADABLE",
+                    "profile_id": raw.get("profile_id"),
+                    "created_at": raw.get("created_at"),
+                    "completed_at": raw.get("completed_at"),
+                    "progress": {
+                        "expected": expected,
+                        "captured": captured,
+                        "missing": max(0, expected - captured),
+                        "percent": round(captured * 100.0 / expected, 1)
+                        if expected
+                        else 0.0,
+                    },
+                    "error_code": "SUBJECT_STATE_UNREADABLE",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+                continue
+            subjects.append({
+                "subject_id": state["subject_id"],
+                "status": state["status"],
+                "profile_id": state["profile_id"],
+                "created_at": state["created_at"],
+                "completed_at": state["completed_at"],
+                "progress": state["progress"],
+            })
+        await websocket.send(json.dumps({
+            "type": "protocol_subject_list",
+            "data": {"subjects": subjects},
+        }, ensure_ascii=False))
+
+    def _protocol_capture_policy(self, conditions: tuple[Condition, ...]) -> dict:
+        """Freeze every capture/QC rule needed to validate future attempts."""
+
+        qc_policies = {
+            format_condition_id(item): self._protocol_qc_policy(item)
+            for item in conditions
+        }
+        return {
+            "burst_frame_count": _PROTOCOL_BURST_FRAMES,
+            "anchor_frame": "F03",
+            "burst_interval_target_ms": int(_PROTOCOL_BURST_INTERVAL_SEC * 1000),
+            "required_modalities": [
+                "rgb",
+                "depth_raw",
+                "depth_aligned",
+                "ir_left",
+                "ir_right",
+            ],
+            "optional_modalities": [],
+            "qc_policy_version": _PROTOCOL_QC_VERSION,
+            "qc_policy_sha256_by_condition": {
+                condition_id: self._canonical_json_sha256(policy)
+                for condition_id, policy in qc_policies.items()
+            },
+            "qc_policy_by_condition": qc_policies,
+            "required_qc_check_counts": dict(_REQUIRED_QC_CHECK_COUNTS),
+            "warn_requires_manual_review": True,
+            "strict_qc_contract": True,
+            "view_angle_direction": "clockwise_from_overhead",
+        }
+
+    async def _create_protocol_subject(self, websocket, data: dict):
+        subject_id = validate_subject_id(str(data.get("subject_id", "")).strip().upper())
+        profile_id = str(data.get("profile_id") or _DEFAULT_PROTOCOL_PROFILE)
+        conditions = self._profile_conditions(profile_id)
+        metadata = dict(data.get("metadata") or {})
+        if metadata.get("consent_internal") is not True:
+            raise ValueError("必须确认受试者已同意本项目内部采集")
+        operator_id = str(metadata.get("operator_id") or "").strip()
+        if not _OPERATOR_ID_PATTERN.fullmatch(operator_id):
+            raise ValueError("操作员编号只能包含字母、数字、下划线或连字符，长度 1–32")
+        if profile_id == "full36":
+            raise ValueError("Full-36 当前被后端禁用；完成照度计、灯具和逐条件 lux 元数据支持后再启用")
+        confirmed_at = datetime.now(timezone.utc).isoformat()
+        metadata.update({
+            "operator_id": operator_id,
+            "collection_scope": "capture_only",
+            "smplx_deferred": True,
+            "consent_internal_version": "capture-consent-v1",
+            "consent_internal_confirmed_at": confirmed_at,
+            "created_by_app_at": confirmed_at,
+        })
+        created = self.protocol_store.create_subject(
+            subject_id=subject_id,
+            protocol_version=_PROTOCOL_VERSION,
+            profile_id=profile_id,
+            subject_metadata=metadata,
+            expected_conditions=[self._condition_payload(item) for item in conditions],
+            capture_policy_version="realanthro-capture-v1.0",
+            capture_policy=self._protocol_capture_policy(conditions),
+        )
+        self.active_protocol_subject_id = subject_id
+        try:
+            state = await self._send_protocol_state(websocket, subject_id)
+            await self._send_protocol_subjects(websocket)
+            await self._broadcast({
+                "type": "protocol_subject_list_changed",
+                "data": {"subject_id": subject_id, "action": "created"},
+            })
+            return state
+        except Exception as exc:
+            # The subject directory and immutable snapshot already exist.  Do
+            # not make the UI believe creation rolled back or encourage reuse
+            # of the same subject ID.
+            logger.exception("Subject created but initial state delivery failed")
+            fallback = {
+                "success": True,
+                "operation_success": True,
+                "committed": True,
+                "subject_id": subject_id,
+                "created_state": created,
+                "post_commit_error": f"{type(exc).__name__}: {exc}",
+                "message": "受试者已创建，但界面初始化失败；请刷新受试者列表",
+            }
+            try:
+                await self._emit_protocol_message(
+                    websocket, {"type": "protocol_subject_created", "data": fallback}
+                )
+            except Exception:
+                pass
+            return fallback
+
+    async def _select_protocol_subject(self, websocket, data: dict):
+        subject_id = validate_subject_id(str(data.get("subject_id", "")).strip().upper())
+        self.protocol_store.get_subject_state(subject_id)
+        self.active_protocol_subject_id = subject_id
+        return await self._send_protocol_state(websocket, subject_id)
+
+    @staticmethod
+    def _canonical_json_sha256(value: Mapping[str, Any]) -> str:
+        payload = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def _protocol_qc_policy(self, condition: Condition) -> dict:
+        """Build the immutable, condition-specific QC policy snapshot."""
+
+        distance_tolerance = max(400.0, float(condition.distance_mm) * 0.20)
+        return {
+            "schema_version": "1.0",
+            "policy_version": _PROTOCOL_QC_VERSION,
+            "mode": "pilot_review",
+            "required_frame_count": _PROTOCOL_BURST_FRAMES,
+            "anchor_frame": "F03",
+            "required_modalities": [
+                "rgb",
+                "depth_raw",
+                "depth_aligned",
+                "ir_left",
+                "ir_right",
+            ],
+            "hard_thresholds": {
+                "stream_timestamp_skew_max_ms": 50.0,
+                "burst_interval_min_exclusive_ms": 0.0,
+                "burst_interval_max_ms": 500.0,
+                "depth_valid_ratio_min": 0.05,
+                "depth_scale_min_exclusive": 0.0,
+                "calibration_required": [
+                    "color_intrinsics",
+                    "depth_raw_intrinsics",
+                    "depth_aligned_intrinsics",
+                    "depth_raw_to_color_extrinsics",
+                ],
+            },
+            "review_thresholds": {
+                "brightness_min": float(self.settings.storage.min_color_brightness),
+                "brightness_max": float(self.settings.storage.max_color_brightness),
+                "laplacian_variance_min": 25.0,
+                "depth_valid_ratio_preferred_min": float(
+                    self.settings.storage.min_depth_coverage
+                ),
+                "expected_distance_mm": float(condition.distance_mm),
+                "expected_distance_tolerance_mm": distance_tolerance,
+                "expected_distance_pixel_ratio_preferred_min": 0.03,
+                "scene_region_height_ratio_preferred_min": 0.55,
+                "scene_region_top_max_ratio": 0.20,
+                "scene_region_bottom_min_ratio": 0.80,
+                "burst_interval_preferred_min_ms": 90.0,
+                "burst_interval_preferred_max_ms": 250.0,
+            },
+            "limitations": [
+                "No Pilot-frozen human segmentation or pose model is enabled.",
+                "Depth-band scene metrics cannot prove that a person is present.",
+            ],
+        }
+
+    def _protocol_qc(
+        self,
+        frames: list[FrameBundle],
+        condition,
+        adapter=None,
+        policy_snapshot: Mapping[str, Any] | None = None,
+    ) -> dict:
+        """Run reproducible hard checks and Pilot-only review metrics.
+
+        The current project has no frozen human segmentation / pose model.  A
+        depth band is therefore *not* treated as a human mask: a wall can
+        satisfy it.  Content and label correctness always enter the explicit
+        operator-review queue, while modality, dtype, synchronization and
+        calibration failures remain hard failures.
+        """
+
+        import cv2
+
+        adapter = adapter or self.active_camera_adapter
+        backend = str(getattr(adapter, "backend", ""))
+        policy = (
+            json.loads(json.dumps(policy_snapshot, ensure_ascii=False))
+            if isinstance(policy_snapshot, Mapping)
+            else self._protocol_qc_policy(condition)
+        )
+        if str(policy.get("policy_version") or "") != _PROTOCOL_QC_VERSION:
+            raise ProtocolStoreError("冻结 QC policy 版本与当前执行器不兼容")
+        if int(policy.get("required_frame_count", 0)) != _PROTOCOL_BURST_FRAMES:
+            raise ProtocolStoreError("冻结 QC policy 的 burst 帧数不受当前执行器支持")
+        if policy.get("anchor_frame") != "F03":
+            raise ProtocolStoreError("冻结 QC policy 的 anchor frame 不受当前执行器支持")
+        distance_tolerance = float(
+            policy["review_thresholds"]["expected_distance_tolerance_mm"]
+        )
+        policy_hash = self._canonical_json_sha256(policy)
+
+        checks = []
+
+        def add_check(
+            code: str,
+            status: str,
+            message: str,
+            *,
+            frame: str | None = None,
+            value: Any = None,
+            unit: str | None = None,
+            threshold: Any = None,
+            category: str = "hard",
+        ) -> None:
+            item = {
+                "code": code,
+                "status": status,
+                "category": category,
+                "blocking": status == "FAIL",
+                "message": message,
+            }
+            if frame is not None:
+                item["frame"] = frame
+            if value is not None:
+                item["value"] = self._jsonable(value)
+            if unit is not None:
+                item["unit"] = unit
+            if threshold is not None:
+                item["threshold"] = self._jsonable(threshold)
+            checks.append(item)
+
+        add_check(
+            "BURST_FRAME_COUNT",
+            "PASS" if len(frames) == _PROTOCOL_BURST_FRAMES else "FAIL",
+            (
+                f"burst 共 {len(frames)} 帧"
+                if len(frames) == _PROTOCOL_BURST_FRAMES
+                else f"burst 必须为 {_PROTOCOL_BURST_FRAMES} 帧，实际 {len(frames)} 帧"
+            ),
+            value=len(frames),
+            unit="frames",
+            threshold={"equals": _PROTOCOL_BURST_FRAMES},
+        )
+
+        first_specs: dict[str, dict[str, Any]] = {}
+        calibration_hashes: list[str] = []
+        ordered_frame_numbers: list[int] = []
+        ordered_device_timestamps: list[float] = []
+        stream_number_series: dict[str, list[int]] = {}
+        frame_metrics = []
+
+        def canonical_streams(values: Mapping[str, Any]) -> dict[str, Any]:
+            aliases = {
+                "infrared_left": "ir_left",
+                "infrared_right": "ir_right",
+            }
+            return {aliases.get(str(key), str(key)): value for key, value in values.items()}
+
+        def image_spec(array: Any) -> dict[str, Any] | None:
+            if not isinstance(array, np.ndarray):
+                return None
+            return {"shape": list(array.shape), "dtype": str(array.dtype)}
+
+        for index, frame in enumerate(frames, 1):
+            label = f"F{index:02d}"
+            metric: dict[str, Any] = {"frame": label}
+            modalities = {
+                "rgb": frame.color,
+                "depth_raw": frame.depth_raw,
+                "depth_aligned": frame.depth_aligned,
+                "ir_left": frame.infrared.get("left"),
+                "ir_right": frame.infrared.get("right"),
+            }
+            missing = [name for name, array in modalities.items() if array is None]
+            add_check(
+                "REQUIRED_MODALITIES",
+                "FAIL" if missing else "PASS",
+                (
+                    f"{label} 缺少模态：{', '.join(missing)}"
+                    if missing
+                    else f"{label} 五类协议模态齐全"
+                ),
+                frame=label,
+                value={"missing": missing, "backend": backend},
+                threshold={"required": policy["required_modalities"]},
+            )
+            metric["missing_modalities"] = missing
+
+            format_errors = []
+            for name, array in modalities.items():
+                if array is None:
+                    continue
+                spec = image_spec(array)
+                metric[f"{name}_spec"] = spec
+                if name == "rgb":
+                    valid_format = (
+                        array.dtype == np.uint8
+                        and array.ndim == 3
+                        and array.shape[2] == 3
+                    )
+                elif name in {"depth_raw", "depth_aligned"}:
+                    valid_format = array.dtype == np.uint16 and array.ndim == 2
+                else:
+                    valid_format = array.dtype in {np.dtype(np.uint8), np.dtype(np.uint16)} and array.ndim == 2
+                if not valid_format:
+                    format_errors.append(f"{name}={spec}")
+                if name not in first_specs:
+                    first_specs[name] = spec
+                elif first_specs[name] != spec:
+                    format_errors.append(
+                        f"{name} 与 F01 不一致：{spec} != {first_specs[name]}"
+                    )
+            if frame.color is not None and frame.depth_aligned is not None:
+                if frame.color.shape[:2] != frame.depth_aligned.shape[:2]:
+                    format_errors.append(
+                        "depth_aligned 高宽必须与 RGB 完全一致："
+                        f"{frame.depth_aligned.shape[:2]} != {frame.color.shape[:2]}"
+                    )
+            add_check(
+                "IMAGE_FORMAT_AND_SHAPE",
+                "FAIL" if format_errors else "PASS",
+                (
+                    f"{label} 图像格式/尺寸错误：{'；'.join(format_errors)}"
+                    if format_errors
+                    else f"{label} dtype、通道数和 burst 尺寸一致"
+                ),
+                frame=label,
+                value={name: image_spec(value) for name, value in modalities.items()},
+                threshold={
+                    "rgb": "uint8 HxWx3",
+                    "depth_raw": "uint16 HxW",
+                    "depth_aligned": "uint16 RGB_HxRGB_W",
+                    "ir": "uint8|uint16 HxW",
+                    "burst_consistency": True,
+                },
+            )
+
+            intrinsics = self._jsonable(frame.intrinsics)
+            extrinsics = self._jsonable(frame.extrinsics)
+            calibration_errors = []
+            expected_shapes = {
+                "color": getattr(frame.color, "shape", (0, 0))[:2],
+                "depth_raw": getattr(frame.depth_raw, "shape", (0, 0))[:2],
+                "depth_aligned": getattr(frame.depth_aligned, "shape", (0, 0))[:2],
+            }
+            for stream_name in ("color", "depth_raw", "depth_aligned"):
+                item = intrinsics.get(stream_name) if isinstance(intrinsics, Mapping) else None
+                if not isinstance(item, Mapping):
+                    calibration_errors.append(f"缺少 {stream_name} intrinsics")
+                    continue
+                if float(item.get("fx") or 0) <= 0 or float(item.get("fy") or 0) <= 0:
+                    calibration_errors.append(f"{stream_name} fx/fy 无效")
+                expected_height, expected_width = expected_shapes[stream_name]
+                if (
+                    int(item.get("width") or 0) != int(expected_width)
+                    or int(item.get("height") or 0) != int(expected_height)
+                ):
+                    calibration_errors.append(
+                        f"{stream_name} intrinsics 尺寸与图像不一致"
+                    )
+            depth_to_color = (
+                extrinsics.get("depth_raw_to_color")
+                if isinstance(extrinsics, Mapping)
+                else None
+            )
+            if not isinstance(depth_to_color, Mapping):
+                calibration_errors.append("缺少 depth_raw_to_color extrinsics")
+            else:
+                if len(depth_to_color.get("rotation") or []) != 9:
+                    calibration_errors.append("depth_raw_to_color rotation 必须有 9 项")
+                if len(depth_to_color.get("translation") or []) != 3:
+                    calibration_errors.append("depth_raw_to_color translation 必须有 3 项")
+            if not np.isfinite(float(frame.depth_scale)) or float(frame.depth_scale) <= 0:
+                calibration_errors.append("depth_scale 必须为有限正数")
+            calibration_payload = {
+                "intrinsics": intrinsics,
+                "extrinsics": extrinsics,
+                "depth_scale_mm_per_unit": frame.depth_scale,
+            }
+            calibration_hash = hashlib.sha256(
+                json.dumps(
+                    calibration_payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            calibration_hashes.append(calibration_hash)
+            metric["calibration_sha256"] = calibration_hash
+            add_check(
+                "CALIBRATION_COMPLETE",
+                "FAIL" if calibration_errors else "PASS",
+                (
+                    f"{label} 标定缺失/不一致：{'；'.join(calibration_errors)}"
+                    if calibration_errors
+                    else f"{label} 内参、外参和 depth scale 可复验"
+                ),
+                frame=label,
+                value={"sha256": calibration_hash, "errors": calibration_errors},
+                threshold={"required": policy["hard_thresholds"]["calibration_required"]},
+            )
+
+            if frame.color is not None and frame.color.ndim == 3:
+                gray = frame.color.mean(axis=2).astype(np.uint8)
+                brightness = float(gray.mean())
+                blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+                metric.update(
+                    {
+                        "brightness_mean": brightness,
+                        "laplacian_variance": blur_score,
+                    }
+                )
+                brightness_min = policy["review_thresholds"]["brightness_min"]
+                brightness_max = policy["review_thresholds"]["brightness_max"]
+                brightness_ok = brightness_min <= brightness <= brightness_max
+                add_check(
+                    "RGB_BRIGHTNESS_PILOT",
+                    "PASS" if brightness_ok else "WARN",
+                    (
+                        f"{label} RGB 亮度均值 {brightness:.1f}"
+                        if brightness_ok
+                        else f"{label} RGB 亮度均值 {brightness:.1f} 超出 Pilot 建议范围"
+                    ),
+                    frame=label,
+                    value=brightness,
+                    unit="gray_level",
+                    threshold={"min": brightness_min, "max": brightness_max},
+                    category="pilot_metric",
+                )
+                blur_min = policy["review_thresholds"]["laplacian_variance_min"]
+                add_check(
+                    "RGB_BLUR_PILOT",
+                    "PASS" if blur_score >= blur_min else "WARN",
+                    (
+                        f"{label} Laplacian {blur_score:.1f}"
+                        if blur_score >= blur_min
+                        else f"{label} 可能模糊，Laplacian {blur_score:.1f}"
+                    ),
+                    frame=label,
+                    value=blur_score,
+                    threshold={"min": blur_min},
+                    category="pilot_metric",
+                )
+
+            if frame.depth_raw is not None and frame.depth_raw.ndim == 2:
+                raw_valid = (frame.depth_raw > 0) & (frame.depth_raw < 65535)
+                raw_coverage = float(raw_valid.mean())
+                metric["depth_raw_valid_ratio"] = raw_coverage
+                hard_min = policy["hard_thresholds"]["depth_valid_ratio_min"]
+                preferred_min = policy["review_thresholds"][
+                    "depth_valid_ratio_preferred_min"
+                ]
+                if raw_coverage < hard_min:
+                    coverage_status = "FAIL"
+                elif raw_coverage < preferred_min:
+                    coverage_status = "WARN"
+                else:
+                    coverage_status = "PASS"
+                add_check(
+                    "DEPTH_RAW_VALID_RATIO",
+                    coverage_status,
+                    f"{label} raw depth 有效率 {raw_coverage:.1%}",
+                    frame=label,
+                    value=raw_coverage,
+                    unit="ratio",
+                    threshold={"hard_min": hard_min, "preferred_min": preferred_min},
+                    category="hard_and_pilot",
+                )
+
+            if frame.depth_aligned is not None and frame.depth_aligned.ndim == 2:
+                aligned_valid = (frame.depth_aligned > 0) & (frame.depth_aligned < 65535)
+                aligned_coverage = float(aligned_valid.mean())
+                metric["depth_aligned_valid_ratio"] = aligned_coverage
+                hard_min = policy["hard_thresholds"]["depth_valid_ratio_min"]
+                preferred_min = policy["review_thresholds"][
+                    "depth_valid_ratio_preferred_min"
+                ]
+                if aligned_coverage < hard_min:
+                    aligned_status = "FAIL"
+                elif aligned_coverage < preferred_min:
+                    aligned_status = "WARN"
+                else:
+                    aligned_status = "PASS"
+                add_check(
+                    "DEPTH_ALIGNED_VALID_RATIO",
+                    aligned_status,
+                    f"{label} aligned depth 有效率 {aligned_coverage:.1%}",
+                    frame=label,
+                    value=aligned_coverage,
+                    unit="ratio",
+                    threshold={"hard_min": hard_min, "preferred_min": preferred_min},
+                    category="hard_and_pilot",
+                )
+
+                depth_mm = frame.depth_aligned.astype(np.float32) * float(frame.depth_scale)
+                near_expected = aligned_valid & (
+                    depth_mm >= float(condition.distance_mm) - distance_tolerance
+                ) & (
+                    depth_mm <= float(condition.distance_mm) + distance_tolerance
+                )
+                expected_ratio = float(near_expected.mean())
+                metric["expected_distance_pixel_ratio"] = expected_ratio
+                preferred_ratio = policy["review_thresholds"][
+                    "expected_distance_pixel_ratio_preferred_min"
+                ]
+                add_check(
+                    "EXPECTED_DISTANCE_REGION_PILOT",
+                    "PASS" if expected_ratio >= preferred_ratio else "WARN",
+                    (
+                        f"{label} 标称距离窗像素占比 {expected_ratio:.1%}；"
+                        "该值仅为场景指标，不代表人体 mask"
+                    ),
+                    frame=label,
+                    value=expected_ratio,
+                    unit="ratio",
+                    threshold={
+                        "preferred_min": preferred_ratio,
+                        "distance_mm": condition.distance_mm,
+                        "tolerance_mm": distance_tolerance,
+                    },
+                    category="pilot_metric",
+                )
+                if near_expected.any():
+                    mask = cv2.morphologyEx(
+                        near_expected.astype(np.uint8),
+                        cv2.MORPH_CLOSE,
+                        np.ones((5, 5), dtype=np.uint8),
+                    )
+                    contours, _ = cv2.findContours(
+                        mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                    )
+                    if contours:
+                        x, y, width, height = cv2.boundingRect(
+                            max(contours, key=cv2.contourArea)
+                        )
+                        image_height = mask.shape[0]
+                        height_ratio = height / image_height
+                        top_ratio = y / image_height
+                        bottom_ratio = (y + height) / image_height
+                        metric["expected_depth_region_bbox"] = [x, y, width, height]
+                        metric["expected_depth_region_height_ratio"] = height_ratio
+                        region_ok = (
+                            height_ratio
+                            >= policy["review_thresholds"][
+                                "scene_region_height_ratio_preferred_min"
+                            ]
+                            and top_ratio
+                            <= policy["review_thresholds"]["scene_region_top_max_ratio"]
+                            and bottom_ratio
+                            >= policy["review_thresholds"]["scene_region_bottom_min_ratio"]
+                        )
+                        add_check(
+                            "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+                            "PASS" if region_ok else "WARN",
+                            (
+                                f"{label} 距离窗最大场景区域 bbox={[x, y, width, height]}；"
+                                "不能据此判定人体或头脚"
+                            ),
+                            frame=label,
+                            value={
+                                "bbox": [x, y, width, height],
+                                "height_ratio": height_ratio,
+                                "top_ratio": top_ratio,
+                                "bottom_ratio": bottom_ratio,
+                            },
+                            threshold={
+                                "height_ratio_min": policy["review_thresholds"][
+                                    "scene_region_height_ratio_preferred_min"
+                                ],
+                                "top_ratio_max": policy["review_thresholds"][
+                                    "scene_region_top_max_ratio"
+                                ],
+                                "bottom_ratio_min": policy["review_thresholds"][
+                                    "scene_region_bottom_min_ratio"
+                                ],
+                            },
+                            category="pilot_metric",
+                        )
+
+            timestamps = canonical_streams(frame.stream_timestamps)
+            stream_numbers = canonical_streams(frame.stream_frame_numbers)
+            required_clock_streams = {
+                "color",
+                "depth_raw",
+                "depth_aligned",
+                "ir_left",
+                "ir_right",
+            }
+            missing_timestamps = sorted(required_clock_streams - set(timestamps))
+            if missing_timestamps:
+                clock_status = "FAIL"
+                skew_ms = None
+            else:
+                skew_ms = float(max(timestamps.values()) - min(timestamps.values()))
+                clock_status = (
+                    "PASS"
+                    if skew_ms
+                    <= policy["hard_thresholds"]["stream_timestamp_skew_max_ms"]
+                    else "FAIL"
+                )
+            metric["stream_timestamp_skew_ms"] = skew_ms
+            add_check(
+                "STREAM_TIMESTAMPS_AND_SKEW",
+                clock_status,
+                (
+                    f"{label} 缺少流时间戳：{', '.join(missing_timestamps)}"
+                    if missing_timestamps
+                    else f"{label} 流间时间差 {skew_ms:.3f} ms"
+                ),
+                frame=label,
+                value={"timestamps": timestamps, "skew_ms": skew_ms},
+                threshold={
+                    "required_streams": sorted(required_clock_streams),
+                    "skew_max_ms": policy["hard_thresholds"][
+                        "stream_timestamp_skew_max_ms"
+                    ],
+                },
+            )
+
+            missing_stream_numbers = sorted(required_clock_streams - set(stream_numbers))
+            add_check(
+                "STREAM_FRAME_NUMBERS_PRESENT",
+                "FAIL" if missing_stream_numbers else "PASS",
+                (
+                    f"{label} 缺少流帧号：{', '.join(missing_stream_numbers)}"
+                    if missing_stream_numbers
+                    else f"{label} 各协议流帧号齐全"
+                ),
+                frame=label,
+                value=stream_numbers,
+                threshold={"required_streams": sorted(required_clock_streams)},
+            )
+            for name, number in stream_numbers.items():
+                stream_number_series.setdefault(name, []).append(int(number))
+
+            if frame.frame_number is None:
+                add_check(
+                    "PRIMARY_FRAME_NUMBER_PRESENT",
+                    "FAIL",
+                    f"{label} 缺少主帧号",
+                    frame=label,
+                )
+            else:
+                ordered_frame_numbers.append(int(frame.frame_number))
+            if frame.device_timestamp is None:
+                add_check(
+                    "PRIMARY_DEVICE_TIMESTAMP_PRESENT",
+                    "FAIL",
+                    f"{label} 缺少设备主时间戳",
+                    frame=label,
+                )
+            else:
+                ordered_device_timestamps.append(float(frame.device_timestamp))
+            frame_metrics.append(metric)
+
+        calibration_consistent = (
+            len(calibration_hashes) == len(frames)
+            and len(set(calibration_hashes)) == 1
+        )
+        add_check(
+            "CALIBRATION_STABLE_ACROSS_BURST",
+            "PASS" if calibration_consistent else "FAIL",
+            (
+                "五帧标定快照一致"
+                if calibration_consistent
+                else "五帧标定快照缺失或发生变化"
+            ),
+            value=calibration_hashes,
+            threshold={"unique_hash_count": 1},
+        )
+
+        primary_numbers_increasing = (
+            len(ordered_frame_numbers) == len(frames)
+            and all(
+                current > previous
+                for previous, current in zip(
+                    ordered_frame_numbers, ordered_frame_numbers[1:]
+                )
+            )
+        )
+        stream_increase_errors = {
+            name: values
+            for name, values in stream_number_series.items()
+            if len(values) != len(frames)
+            or any(
+                current <= previous
+                for previous, current in zip(values, values[1:])
+            )
+        }
+        add_check(
+            "FRAME_NUMBERS_STRICTLY_INCREASING",
+            "PASS" if primary_numbers_increasing and not stream_increase_errors else "FAIL",
+            (
+                "主帧号及各流帧号严格递增"
+                if primary_numbers_increasing and not stream_increase_errors
+                else "存在缺失、重复或倒退的主帧号/流帧号"
+            ),
+            value={
+                "primary": ordered_frame_numbers,
+                "invalid_streams": stream_increase_errors,
+            },
+            threshold={"strictly_increasing": True, "count": len(frames)},
+        )
+
+        burst_intervals = []
+        if len(ordered_device_timestamps) == len(frames):
+            burst_intervals = [
+                current - previous
+                for previous, current in zip(
+                    ordered_device_timestamps, ordered_device_timestamps[1:]
+                )
+            ]
+        interval_hard_ok = (
+            len(burst_intervals) == max(0, len(frames) - 1)
+            and all(
+                policy["hard_thresholds"]["burst_interval_min_exclusive_ms"]
+                < interval
+                <= policy["hard_thresholds"]["burst_interval_max_ms"]
+                for interval in burst_intervals
+            )
+        )
+        add_check(
+            "BURST_DEVICE_INTERVAL_HARD",
+            "PASS" if interval_hard_ok else "FAIL",
+            (
+                f"burst 设备时间间隔 {burst_intervals} ms"
+                if interval_hard_ok
+                else f"burst 设备时间间隔缺失或超出硬范围：{burst_intervals}"
+            ),
+            value=burst_intervals,
+            unit="ms",
+            threshold={
+                "min_exclusive": policy["hard_thresholds"][
+                    "burst_interval_min_exclusive_ms"
+                ],
+                "max": policy["hard_thresholds"]["burst_interval_max_ms"],
+            },
+        )
+        preferred_interval_ok = bool(burst_intervals) and all(
+            policy["review_thresholds"]["burst_interval_preferred_min_ms"]
+            <= interval
+            <= policy["review_thresholds"]["burst_interval_preferred_max_ms"]
+            for interval in burst_intervals
+        )
+        add_check(
+            "BURST_DEVICE_INTERVAL_PILOT",
+            "PASS" if preferred_interval_ok else "WARN",
+            "burst 间隔位于 Pilot 建议范围"
+            if preferred_interval_ok
+            else "burst 间隔偏离 150 ms 目标，请人工复核",
+            value=burst_intervals,
+            unit="ms",
+            threshold={
+                "preferred_min": policy["review_thresholds"][
+                    "burst_interval_preferred_min_ms"
+                ],
+                "preferred_max": policy["review_thresholds"][
+                    "burst_interval_preferred_max_ms"
+                ],
+                "target": int(_PROTOCOL_BURST_INTERVAL_SEC * 1000),
+            },
+            category="pilot_metric",
+        )
+
+        add_check(
+            "HUMAN_CONTENT_MANUAL_REVIEW",
+            "WARN",
+            (
+                "当前没有经 Pilot 冻结的人体分割/关键点模型；请人工复核 F03 中确有"
+                "受试者、全身入框，且视角/姿态/服装标签正确。"
+            ),
+            value={"anchor_frame": "F03", "automated_human_mask": False},
+            threshold={"operator_review_required": True},
+            category="manual_review",
+        )
+
+        failures = [item for item in checks if item["status"] == "FAIL"]
+        warning_checks = [item for item in checks if item["status"] == "WARN"]
+        status = "FAIL" if failures else ("WARN" if warning_checks else "PASS")
+        return {
+            "schema_version": "1.0",
+            "status": status,
+            "policy_version": _PROTOCOL_QC_VERSION,
+            "policy_sha256": policy_hash,
+            "policy_snapshot": policy,
+            "checks": checks,
+            "reason_codes": [item["code"] for item in (*failures, *warning_checks)],
+            "failure_codes": [item["code"] for item in failures],
+            "warning_codes": [item["code"] for item in warning_checks],
+            "hard_errors": [item["message"] for item in failures],
+            "warnings": [item["message"] for item in warning_checks],
+            "manual_review_required": bool(warning_checks) and not failures,
+            "frame_metrics": frame_metrics,
+            "burst_device_intervals_ms": burst_intervals,
+            "calibration_sha256": calibration_hashes[0]
+            if calibration_consistent and calibration_hashes
+            else None,
+            "condition_id": format_condition_id(condition),
+        }
+
+    def _capture_camera_metadata(
+        self,
+        frames: list[FrameBundle],
+        operator_id: str,
+        camera_code: str,
+        operator_confirmations: Mapping[str, Any],
+        qc: Mapping[str, Any],
+    ) -> dict:
+        first = frames[0]
+        observed_streams = {
+            "color": {
+                "shape": list(first.color.shape),
+                "dtype": str(first.color.dtype),
+            },
+            "depth_raw": {
+                "shape": list(first.depth_raw.shape),
+                "dtype": str(first.depth_raw.dtype),
+            },
+            "depth_aligned": {
+                "shape": list(first.depth_aligned.shape),
+                "dtype": str(first.depth_aligned.dtype),
+            },
+            **{
+                f"ir_{name}": {"shape": list(value.shape), "dtype": str(value.dtype)}
+                for name, value in first.infrared.items()
+            },
+        }
+        source_metadata = self._jsonable(first.camera_metadata)
+        stream_profiles = dict(source_metadata.get("stream_profiles") or {})
+        for name, spec in observed_streams.items():
+            height, width = spec["shape"][:2]
+            stream_profiles.setdefault(
+                name,
+                {
+                    "width": width,
+                    "height": height,
+                    "dtype": spec["dtype"],
+                    "source": "observed_array",
+                },
+            )
+        return {
+            **source_metadata,
+            "rgb_color_order": "RGB",
+            "intrinsics": self._jsonable(first.intrinsics),
+            "extrinsics": self._jsonable(first.extrinsics),
+            "calibration_sha256": qc.get("calibration_sha256"),
+            "depth_scale_mm_per_unit": first.depth_scale,
+            "protocol_camera_code": camera_code,
+            "operator_id": operator_id,
+            "operator_confirmations": dict(operator_confirmations),
+            "observed_streams": observed_streams,
+            "stream_profiles": stream_profiles,
+            "burst_frame_count": len(frames),
+            "burst_interval_target_ms": int(_PROTOCOL_BURST_INTERVAL_SEC * 1000),
+            "qc_policy_version": qc.get("policy_version"),
+            "qc_policy_sha256": qc.get("policy_sha256"),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @staticmethod
+    def _store_frames(frames: list[FrameBundle]) -> list[dict]:
+        return [{
+            "color": frame.color,
+            "depth_raw": frame.depth_raw,
+            "depth_aligned": frame.depth_aligned,
+            "infrared": frame.infrared,
+            "depth_scale": frame.depth_scale,
+            "device_timestamp": frame.device_timestamp,
+            "frame_number": frame.frame_number,
+            "host_timestamp_ns": frame.host_timestamp_ns,
+            "stream_timestamps": frame.stream_timestamps,
+            "stream_frame_numbers": frame.stream_frame_numbers,
+            "frame_camera_metadata": frame.camera_metadata,
+        } for frame in frames]
+
+    def _assert_protocol_camera(self, condition, adapter) -> Mapping[str, Any]:
+        expected_backend = _CAMERA_BACKEND_BY_CODE[condition.camera_code]
+        active_status = adapter.get_status()
+        if adapter.backend != expected_backend or not active_status.get("connected"):
+            camera_name = "Gemini 336L" if expected_backend == "orbbec" else "Intel D435i"
+            raise ValueError(f"当前条件必须先连接 {camera_name}")
+        active_device = active_status.get("device") or {}
+        actual_camera_code = str(active_device.get("camera_code") or "")
+        if actual_camera_code != condition.camera_code:
+            raise ValueError(
+                f"设备型号未通过协议识别：期望 {condition.camera_code}，实际 "
+                f"{actual_camera_code or active_device.get('name') or '未知'}"
+            )
+        if not str(active_device.get("serial_number") or active_device.get("uid") or ""):
+            raise ValueError("设备缺少可追溯序列号/UID，禁止协议采集")
+        if condition.camera_code == "C336L" and set(
+            getattr(self.camera, "enabled_ir_streams", []) or []
+        ) != {"left", "right"}:
+            raise ValueError("Gemini 336L 必须成功启用左右 IR 后才能采集")
+        return active_status
+
+    async def _acquire_protocol_burst(self, adapter) -> list[FrameBundle]:
+        """Sample native synchronized frames at roughly the 150 ms target.
+
+        RGB-D SDK queues often retain 30 fps frames while the coroutine sleeps.
+        Simply sleeping then reading once can therefore return adjacent 33 ms
+        frames.  We drain stale frames and only accept a bundle after at least
+        90 ms on the device clock (falling back to the host monotonic clock).
+        """
+
+        import time
+
+        frames: list[FrameBundle] = []
+        accepted_host_ms: float | None = None
+        last_device_ms: float | None = None
+        per_frame_deadline_sec = 2.5
+        while len(frames) < _PROTOCOL_BURST_FRAMES:
+            deadline = time.monotonic() + per_frame_deadline_sec
+            while True:
+                bundle = await asyncio.to_thread(adapter.get_frames, 1500)
+                if bundle is None:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError(f"第 {len(frames) + 1} 帧获取失败")
+                    continue
+                now_host_ms = time.monotonic() * 1000.0
+                device_ms = (
+                    float(bundle.device_timestamp)
+                    if bundle.device_timestamp is not None
+                    else None
+                )
+                if not frames:
+                    break
+                device_delta = (
+                    device_ms - last_device_ms
+                    if device_ms is not None and last_device_ms is not None
+                    else None
+                )
+                host_delta = now_host_ms - float(accepted_host_ms)
+                if (
+                    (device_delta is not None and device_delta >= 90.0)
+                    or (device_delta is None and host_delta >= 90.0)
+                ):
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"第 {len(frames) + 1} 帧未达到独立采样间隔；"
+                        f"device_delta={device_delta}, host_delta={host_delta:.1f} ms"
+                    )
+            frames.append(bundle)
+            accepted_host_ms = now_host_ms
+            last_device_ms = device_ms
+        return frames
+
+    async def _capture_protocol_condition(self, websocket, data: dict):
+        if getattr(self, "is_shutting_down", False):
+            raise ValueError("系统正在安全关闭，拒绝开始新的采集")
+        if websocket is not None and not data.get("subject_id"):
+            raise ValueError("协议写命令必须显式携带 subject_id")
+        subject_id = str(data.get("subject_id") or self.active_protocol_subject_id or "")
+        if not subject_id:
+            raise ValueError("请先创建或选择受试者")
+        self._assert_protocol_subject_writable(subject_id)
+        state = self.protocol_store.get_subject_state(subject_id)
+        if state.get("status") == "COMPLETE":
+            raise ValueError("该受试者已完成，不能继续追加采集")
+        condition_id = str(data.get("condition_id") or "")
+        condition = next(
+            (
+                item
+                for item in self._subject_conditions(state)
+                if format_condition_id(item) == condition_id
+            ),
+            None,
+        )
+        if condition is None:
+            raise ValueError("条件不属于当前受试者的矩阵")
+        confirmations = data.get("confirmations")
+        if not isinstance(confirmations, Mapping) or any(
+            confirmations.get(key) is not True
+            for key in _REQUIRED_OPERATOR_CONFIRMATIONS
+        ):
+            raise ValueError("开始采集前必须逐项确认距离、朝向/姿态/服装和全身入框")
+        if condition.repeat_id > 1 and confirmations.get("repositioned") is not True:
+            raise ValueError("R02/R03 必须确认受试者已完全离开站位区后重新进入")
+        public_state = self._protocol_subject_state(subject_id)
+        requested_state = next(
+            item for item in public_state["conditions"] if item["condition_id"] == condition_id
+        )
+        if (
+            condition_id != public_state.get("next_condition_id")
+            and requested_state.get("status") != "CAPTURED"
+        ):
+            raise ValueError(
+                f"请按协议顺序采集，下一条件是 {public_state.get('next_condition_id')}"
+            )
+        expected_nonce = requested_state.get("confirmation_nonce")
+        supplied_nonce = str(confirmations.get("nonce") or "")
+        if not expected_nonce or not secrets.compare_digest(supplied_nonce, expected_nonce):
+            raise ValueError("本次现场确认已失效，请重新勾选后再采集")
+
+        is_retake = requested_state.get("status") == "CAPTURED"
+        retake_reason = data.get("retake_reason")
+        target_attempt_id = data.get("target_attempt_id")
+        invalidate_prior = data.get("invalidate_prior")
+        if is_retake and (
+            not str(retake_reason or "").strip()
+            or target_attempt_id != requested_state.get("accepted_attempt_id")
+            or not isinstance(invalidate_prior, bool)
+        ):
+            raise ValueError(
+                "补采已通过条件时必须填写原因、指定当前 accepted attempt，并明确是否作废旧数据"
+            )
+        if self.capture_lock.locked():
+            raise ValueError("正在采集中，请稍候")
+
+        async with self.capture_lock:
+            self.is_capturing = True
+            attempt_id = None
+            committed = False
+            committed_attempt = None
+            frames: list[FrameBundle] = []
+            qc = None
+            condition_payload = self._condition_payload(condition)
+            try:
+                # Re-check state, nonce and camera identity after acquiring the
+                # workflow lock.  Camera connect/disconnect also re-check this
+                # lock while holding camera_lock, closing the TOCTOU window.
+                current_public_state = self._protocol_subject_state(subject_id)
+                current_condition = next(
+                    item
+                    for item in current_public_state["conditions"]
+                    if item["condition_id"] == condition_id
+                )
+                current_nonce = self._confirmation_nonce(subject_id, condition_id)
+                if not secrets.compare_digest(supplied_nonce, current_nonce):
+                    raise ValueError("本次现场确认已被使用，请刷新状态并重新确认")
+                adapter = self.active_camera_adapter
+                async with self.camera_lock:
+                    if adapter is not self.active_camera_adapter:
+                        raise ValueError("采集前摄像头发生切换，请重新确认条件")
+                    self._assert_protocol_camera(condition, adapter)
+                attempt_id = await asyncio.to_thread(
+                    self.protocol_store.begin_capture_attempt,
+                    subject_id,
+                    condition_payload,
+                    retake_reason,
+                    target_attempt_id,
+                    invalidate_prior,
+                )
+                condition_payload["attempt_id"] = attempt_id
+                getattr(self, "_protocol_confirmation_nonces", {}).pop(
+                    (subject_id, condition_id), None
+                )
+                if self.voice_synthesizer:
+                    self.voice_synthesizer.speak("请保持姿势不动，两秒后采集。", blocking=False)
+                await asyncio.sleep(2.0)
+                async with self.camera_lock:
+                    if adapter is not self.active_camera_adapter:
+                        raise RuntimeError("burst 前摄像头已改变")
+                    self._assert_protocol_camera(condition, adapter)
+                    frames = await self._acquire_protocol_burst(adapter)
+
+                qc = self._protocol_qc(
+                    frames,
+                    condition,
+                    adapter=adapter,
+                    policy_snapshot=self._frozen_subject_qc_policy(
+                        state, condition_id
+                    ),
+                )
+                committed_attempt = await asyncio.to_thread(
+                    self.protocol_store.commit_capture_attempt,
+                    subject_id,
+                    condition_payload,
+                    self._store_frames(frames),
+                    qc,
+                    self._capture_camera_metadata(
+                        frames,
+                        str(state.get("subject_metadata", {}).get("operator_id", "")),
+                        condition.camera_code,
+                        {
+                            **dict(confirmations),
+                            "nonce": "consumed",
+                            "confirmed_for_attempt_id": attempt_id,
+                            "confirmed_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                        qc,
+                    ),
+                )
+                committed = True
+                self.active_protocol_subject_id = subject_id
+                bookkeeping_status = str(
+                    committed_attempt.get("bookkeeping_status") or "COMMITTED"
+                )
+                reconciliation_required = bookkeeping_status == "PENDING_RECONCILE"
+                if reconciliation_required:
+                    self._mark_protocol_reconciliation_required(subject_id)
+                    protocol_state = None
+                    post_commit_error = committed_attempt.get("post_commit_error")
+                    logger.error(
+                        "Capture files are durable but bookkeeping requires recovery: {}",
+                        committed_attempt.get("recovery_error") or post_commit_error,
+                    )
+                else:
+                    try:
+                        protocol_state = self._protocol_subject_state(subject_id)
+                        self._apply_protocol_distance_target(protocol_state)
+                        post_commit_error = committed_attempt.get("post_commit_error")
+                    except Exception as exc:
+                        logger.exception("Capture committed but state refresh failed")
+                        protocol_state = None
+                        post_commit_error = f"{type(exc).__name__}: {exc}"
+                accepted = qc["status"] == "PASS" and not reconciliation_required
+                review_required = qc["status"] == "WARN" and not reconciliation_required
+                needs_retake = qc["status"] == "FAIL" and not reconciliation_required
+                if reconciliation_required:
+                    message = (
+                        "采集文件已原子落盘，但状态账本尚未恢复；请停止继续操作并重启采集服务"
+                    )
+                elif accepted:
+                    message = "采集已通过客观质控并被接受"
+                elif review_required:
+                    message = "采集已安全保存，需查看已提交 F03 后完成人工复核"
+                else:
+                    message = "采集已保存为未通过 attempt，请按原因补采"
+                review_preview = {}
+                if review_required:
+                    try:
+                        review_preview = self._load_protocol_review_preview(
+                            subject_id, condition_id, attempt_id
+                        )
+                    except Exception as exc:
+                        logger.warning(f"Committed F03 preview verification failed: {exc}")
+                result = {
+                    "success": not needs_retake and not reconciliation_required,
+                    "operation_success": True,
+                    "committed": True,
+                    "accepted": accepted,
+                    "review_required": review_required,
+                    "needs_retake": needs_retake,
+                    "subject_id": subject_id,
+                    "condition_id": condition_id,
+                    "attempt_id": attempt_id,
+                    "quality_status": qc["status"],
+                    "qc": qc,
+                    "state": protocol_state,
+                    "review_preview": review_preview,
+                    "bookkeeping_status": bookkeeping_status,
+                    "reconciliation_required": reconciliation_required,
+                    "post_commit_error": post_commit_error,
+                    "error": message if reconciliation_required else None,
+                    "message": message,
+                }
+                try:
+                    await self._emit_protocol_message(
+                        websocket, {"type": "protocol_capture_result", "data": result}
+                    )
+                    if protocol_state is not None:
+                        await self._emit_protocol_message(
+                            websocket,
+                            {"type": "protocol_subject_state", "data": protocol_state},
+                        )
+                except Exception:
+                    # Transport/UI refresh cannot roll back a durable capture.
+                    logger.exception("Capture committed but client notification failed")
+                if self.voice_synthesizer:
+                    self.voice_synthesizer.speak(
+                        (
+                            "数据已保存，但状态待恢复，请停止操作并重启服务。"
+                            if reconciliation_required
+                            else "采集完成。"
+                            if accepted
+                            else (
+                                "采集已保存，请人工复核。"
+                                if review_required
+                                else "质量检查未通过，请重新采集。"
+                            )
+                        ),
+                        blocking=False,
+                    )
+                return result
+            except Exception as exc:
+                # If an exception happened after the durable rename/state
+                # update, never report committed:false or abort that attempt.
+                if attempt_id and not committed:
+                    try:
+                        recovered_state = self.protocol_store.get_subject_state(subject_id)
+                        recovered_attempt = recovered_state.get("attempts", {}).get(
+                            attempt_id, {}
+                        )
+                        committed = recovered_attempt.get("status") == "COMMITTED"
+                        if committed:
+                            committed_attempt = recovered_attempt
+                    except Exception:
+                        pass
+                if committed:
+                    logger.exception("Post-commit protocol processing failed")
+                    review_preview = {}
+                    if attempt_id:
+                        try:
+                            review_preview = self._load_protocol_review_preview(
+                                subject_id, condition_id, attempt_id
+                            )
+                        except Exception as preview_exc:
+                            logger.warning(
+                                "Committed F03 preview recovery failed: {}",
+                                preview_exc,
+                            )
+                    result = {
+                        "success": False,
+                        "operation_success": True,
+                        "committed": True,
+                        "accepted": bool(
+                            committed_attempt
+                            and committed_attempt.get("quality_status") == "PASS"
+                        ),
+                        "review_required": bool(
+                            committed_attempt
+                            and committed_attempt.get("quality_status") == "WARN"
+                        ),
+                        "needs_retake": bool(
+                            committed_attempt
+                            and committed_attempt.get("quality_status") == "FAIL"
+                        ),
+                        "subject_id": subject_id,
+                        "condition_id": condition_id,
+                        "attempt_id": attempt_id,
+                        "quality_status": (
+                            committed_attempt or {}
+                        ).get("quality_status"),
+                        "qc": qc or (committed_attempt or {}).get("qc"),
+                        "review_preview": review_preview,
+                        "post_commit_error": f"{type(exc).__name__}: {exc}",
+                        "message": "数据已提交成功，但界面刷新失败；请刷新受试者状态",
+                    }
+                    try:
+                        await self._emit_protocol_message(
+                            websocket,
+                            {"type": "protocol_capture_result", "data": result},
+                        )
+                    except Exception:
+                        pass
+                    return result
+                if attempt_id:
+                    try:
+                        await asyncio.to_thread(
+                            self.protocol_store.fail_capture_attempt,
+                            subject_id,
+                            condition_payload,
+                            f"{type(exc).__name__}: {exc}",
+                        )
+                    except Exception:
+                        # commit_capture_attempt already records validation and
+                        # write failures; in that case no PENDING attempt remains.
+                        pass
+                raise
+            finally:
+                self.is_capturing = False
+
+    async def _review_protocol_capture(self, websocket, data: dict):
+        if websocket is not None and not data.get("subject_id"):
+            raise ValueError("协议写命令必须显式携带 subject_id")
+        subject_id = str(data.get("subject_id") or self.active_protocol_subject_id or "")
+        condition_id = str(data.get("condition_id") or "")
+        attempt_id = str(data.get("attempt_id") or "")
+        decision = str(data.get("decision") or "").upper()
+        reason = str(data.get("reason") or "").strip()
+        if not subject_id or not condition_id or not attempt_id:
+            raise ValueError("人工复核必须指定 subject_id、condition_id 和 attempt_id")
+        self._assert_protocol_subject_writable(subject_id)
+        if decision not in {"ACCEPT", "REJECT"}:
+            raise ValueError("人工复核 decision 只能是 ACCEPT 或 REJECT")
+        if len(reason) < 4 or len(reason) > 500:
+            raise ValueError("人工复核原因必须填写 4–500 个字符")
+        evidence_token = str(data.get("evidence_token") or "")
+        evidence_tokens = getattr(self, "_protocol_review_evidence_tokens", {})
+        evidence_record = evidence_tokens.get((subject_id, attempt_id))
+        expected_evidence_token = (
+            str(evidence_record.get("token") or "")
+            if isinstance(evidence_record, Mapping)
+            else ""
+        )
+        if decision == "ACCEPT" and (
+            not expected_evidence_token
+            or not secrets.compare_digest(evidence_token, expected_evidence_token)
+        ):
+            raise ValueError("接受前必须读取并验证该 attempt 已落盘的 F03 RGB 与深度证据")
+        verified_evidence = None
+        if decision == "ACCEPT":
+            issued_at = float(evidence_record.get("issued_monotonic") or 0.0)
+            if time.monotonic() - issued_at > _REVIEW_EVIDENCE_TOKEN_TTL_SEC:
+                evidence_tokens.pop((subject_id, attempt_id), None)
+                raise ValueError("F03 复核证据令牌已过期，请重新读取已落盘证据")
+            verified_evidence = self.protocol_store.get_verified_anchor_files(
+                subject_id,
+                condition_id,
+                attempt_id,
+                frame_index=3,
+                modalities=("rgb", "depth_aligned"),
+            )
+            if not secrets.compare_digest(
+                str(verified_evidence.get("evidence_sha256") or ""),
+                str(evidence_record.get("evidence_sha256") or ""),
+            ):
+                evidence_tokens.pop((subject_id, attempt_id), None)
+                raise ValueError("F03 复核证据在预览后发生变化，请重新读取")
+        raw = self.protocol_store.get_subject_state(subject_id)
+        condition = next(
+            (
+                item
+                for item in self._subject_conditions(raw)
+                if format_condition_id(item) == condition_id
+            ),
+            None,
+        )
+        if condition is None:
+            raise ValueError("复核条件不属于当前受试者的协议快照")
+        operator_id = str(raw.get("subject_metadata", {}).get("operator_id") or "")
+        attempt = raw.get("attempts", {}).get(attempt_id, {})
+        qc = attempt.get("qc", {}) if isinstance(attempt, Mapping) else {}
+        review = await asyncio.to_thread(
+            self.protocol_store.review_capture_attempt,
+            subject_id,
+            self._condition_payload(condition),
+            attempt_id,
+            decision,
+            operator_id,
+            reason,
+            {
+                "policy_version": "manual-warn-review-v1.0",
+                "qc_policy_version": qc.get("policy_version"),
+                "qc_policy_sha256": qc.get("policy_sha256"),
+                "anchor_frame_reviewed": "F03",
+                "verified_evidence_token_sha256": hashlib.sha256(
+                    evidence_token.encode("utf-8")
+                ).hexdigest()
+                if evidence_token
+                else None,
+                "verified_evidence_sha256": (
+                    verified_evidence.get("evidence_sha256")
+                    if verified_evidence
+                    else None
+                ),
+                "evidence_reverified_at": (
+                    verified_evidence.get("verified_at")
+                    if verified_evidence
+                    else None
+                ),
+            },
+        )
+        evidence_tokens.pop((subject_id, attempt_id), None)
+        bookkeeping_status = str(review.get("bookkeeping_status") or "COMMITTED")
+        reconciliation_required = bookkeeping_status == "PENDING_RECONCILE"
+        if reconciliation_required:
+            self._mark_protocol_reconciliation_required(subject_id)
+            state = None
+            post_commit_error = review.get("post_commit_error")
+            logger.error(
+                "Review is durable but bookkeeping requires recovery: {}",
+                review.get("recovery_error") or post_commit_error,
+            )
+        else:
+            try:
+                state = self._protocol_subject_state(subject_id)
+                post_commit_error = review.get("post_commit_error")
+            except Exception as exc:
+                logger.exception("Review committed but state refresh failed")
+                state = None
+                post_commit_error = f"{type(exc).__name__}: {exc}"
+        review_message = (
+            "复核决定已落盘，但状态账本尚未恢复；请停止继续操作并重启采集服务"
+            if reconciliation_required
+            else (
+                "已接受本次 WARN attempt，条件进入已采集状态"
+                if decision == "ACCEPT"
+                else "已驳回本次 WARN attempt，条件进入补采状态"
+            )
+        )
+        result = {
+            "success": not reconciliation_required,
+            "operation_success": True,
+            "committed": True,
+            "subject_id": subject_id,
+            "condition_id": condition_id,
+            "attempt_id": attempt_id,
+            "decision": decision,
+            "review": review,
+            "state": state,
+            "bookkeeping_status": bookkeeping_status,
+            "reconciliation_required": reconciliation_required,
+            "post_commit_error": post_commit_error,
+            "error": review_message if reconciliation_required else None,
+            "message": review_message,
+        }
+        try:
+            await self._emit_protocol_message(
+                websocket, {"type": "protocol_review_result", "data": result}
+            )
+            if state is not None:
+                await self._emit_protocol_message(
+                    websocket, {"type": "protocol_subject_state", "data": state}
+                )
+        except Exception:
+            logger.exception("Review committed but client notification failed")
+        return result
+
+    def _load_protocol_review_preview(
+        self, subject_id: str, condition_id: str, attempt_id: str
+    ) -> dict:
+        import cv2
+
+        evidence = self.protocol_store.get_verified_anchor_files(
+            subject_id,
+            condition_id,
+            attempt_id,
+            frame_index=3,
+            modalities=("rgb", "depth_aligned"),
+        )
+        records = evidence["files"]
+        decoded = {}
+        for modality, record in records.items():
+            payload = record["bytes"]
+            image = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+            if image is None:
+                raise ProtocolStoreError(f"F03 {modality} 无法解码")
+            decoded[modality] = image
+        processor = getattr(self, "frame_processor", None) or FrameProcessor(
+            preview_size=(480, 300), jpeg_quality=75
+        )
+        depth_scale = float(
+            evidence.get("camera_metadata", {}).get(
+                "depth_scale_mm_per_unit", 1.0
+            )
+        )
+        evidence_tokens = getattr(self, "_protocol_review_evidence_tokens", None)
+        if evidence_tokens is None:
+            evidence_tokens = {}
+            self._protocol_review_evidence_tokens = evidence_tokens
+        evidence_token = secrets.token_urlsafe(24)
+        evidence_tokens[(subject_id, attempt_id)] = {
+            "token": evidence_token,
+            "condition_id": condition_id,
+            "evidence_sha256": evidence["evidence_sha256"],
+            "issued_monotonic": time.monotonic(),
+            "verified_at": evidence["verified_at"],
+        }
+        return {
+            "subject_id": subject_id,
+            "condition_id": condition_id,
+            "attempt_id": attempt_id,
+            "anchor_frame": "F03",
+            "color": processor.encode_preview(decoded["rgb"], is_rgb=False),
+            "depth": processor.encode_depth_preview_fast(
+                decoded["depth_aligned"], depth_scale=depth_scale
+            ),
+            "source": "verified_committed_files",
+            "evidence_token": evidence_token,
+            "evidence_sha256": evidence["evidence_sha256"],
+            "evidence_verified_at": evidence["verified_at"],
+            "evidence_token_ttl_seconds": int(_REVIEW_EVIDENCE_TOKEN_TTL_SEC),
+        }
+
+    async def _send_protocol_review_preview(self, websocket, data: dict):
+        subject_id = str(data.get("subject_id") or "")
+        condition_id = str(data.get("condition_id") or "")
+        attempt_id = str(data.get("attempt_id") or "")
+        if not subject_id or not condition_id or not attempt_id:
+            raise ValueError("复核预览必须指定 subject_id、condition_id 和 attempt_id")
+        preview = await asyncio.to_thread(
+            self._load_protocol_review_preview,
+            subject_id,
+            condition_id,
+            attempt_id,
+        )
+        await self._emit_protocol_message(
+            websocket, {"type": "protocol_review_preview", "data": preview}
+        )
+        return preview
+
+    async def _save_protocol_anthropometry(self, websocket, data: dict):
+        if websocket is not None and not data.get("subject_id"):
+            raise ValueError("协议写命令必须显式携带 subject_id")
+        subject_id = str(data.get("subject_id") or self.active_protocol_subject_id or "")
+        if not subject_id:
+            raise ValueError("请先创建或选择受试者")
+        self._assert_protocol_subject_writable(subject_id)
+        records = data.get("records")
+        if not isinstance(records, list):
+            raise ValueError("records 必须是测量记录数组")
+        equipment = data.get("equipment")
+        required_equipment_fields = (
+            "stadiometer_id",
+            "scale_id",
+            "tape_id",
+            "anthropometer_id",
+        )
+        if not isinstance(equipment, Mapping):
+            raise ValueError("必须提交本次人工测量工具记录")
+        normalized_equipment = {}
+        for field_name in required_equipment_fields:
+            value = str(equipment.get(field_name) or "").strip()
+            if not re.fullmatch(r"[\w-]{1,64}", value):
+                raise ValueError(f"{field_name} 必须填写 1–64 位工具编号")
+            normalized_equipment[field_name] = value
+        if equipment.get("equipment_check_confirmed") is not True:
+            raise ValueError("必须确认测量工具已完成零点/校准状态检查")
+        normalized_equipment.update({
+            "equipment_check_confirmed": True,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        })
+        subject_state = self.protocol_store.get_subject_state(subject_id)
+        snapshot = subject_state.get("protocol_snapshot")
+        frozen_definitions = (
+            snapshot.get("measurements") if isinstance(snapshot, Mapping) else None
+        )
+        if not isinstance(frozen_definitions, list) or not frozen_definitions:
+            raise ProtocolStoreError("受试者协议快照缺少冻结的人体测量定义")
+        definitions = {
+            str(item.get("measurement_id") or "").upper(): item
+            for item in frozen_definitions
+            if isinstance(item, Mapping)
+        }
+        measurements = {}
+        for record in records:
+            if not isinstance(record, Mapping):
+                raise ValueError("每条测量记录必须是对象")
+            measurement_id = str(record.get("measurement_id", "")).upper()
+            definition = definitions.get(measurement_id)
+            if definition is None:
+                raise ValueError(f"未知测量项: {measurement_id}")
+            field_name = str(record.get("field_name", ""))
+            if field_name not in set(map(str, definition.get("field_names", []))):
+                raise ValueError(f"{measurement_id} 不包含字段 {field_name}")
+            if field_name in measurements:
+                raise ValueError(f"测量字段重复: {field_name}")
+            values = [record.get("m1"), record.get("m2")]
+            if record.get("m3") not in {None, ""}:
+                values.append(record.get("m3"))
+            measurements[field_name] = values
+        operator_id = str(subject_state.get("subject_metadata", {}).get("operator_id", ""))
+        saved = await asyncio.to_thread(
+            self.protocol_store.save_anthropometry,
+            subject_id,
+            measurements,
+            {
+                "operator_id": operator_id,
+                "source": "protocol_ui",
+                "equipment": normalized_equipment,
+            },
+        )
+        bookkeeping_status = str(saved.get("bookkeeping_status") or "COMMITTED")
+        reconciliation_required = bookkeeping_status == "PENDING_RECONCILE"
+        if reconciliation_required:
+            self._mark_protocol_reconciliation_required(subject_id)
+            state = None
+            post_commit_error = saved.get("post_commit_error")
+            logger.error(
+                "Anthropometry is durable but bookkeeping requires recovery: {}",
+                saved.get("recovery_error") or post_commit_error,
+            )
+        else:
+            try:
+                state = self._protocol_subject_state(subject_id)
+                post_commit_error = saved.get("post_commit_error")
+            except Exception as exc:
+                logger.exception("Anthropometry committed but state refresh failed")
+                state = None
+                post_commit_error = f"{type(exc).__name__}: {exc}"
+        anthropometry_message = (
+            "人体测量 revision 已落盘，但状态账本尚未恢复；请停止继续操作并重启采集服务"
+            if reconciliation_required
+            else "人体测量已保存"
+        )
+        result = {
+            "success": not reconciliation_required,
+            "operation_success": True,
+            "committed": True,
+            "record": saved,
+            "state": state,
+            "bookkeeping_status": bookkeeping_status,
+            "reconciliation_required": reconciliation_required,
+            "post_commit_error": post_commit_error,
+            "error": anthropometry_message if reconciliation_required else None,
+            "message": anthropometry_message,
+        }
+        try:
+            await self._emit_protocol_message(websocket, {
+                "type": "anthropometry_result",
+                "data": result,
+            })
+            if state is not None:
+                await self._emit_protocol_message(
+                    websocket, {"type": "protocol_subject_state", "data": state}
+                )
+        except Exception:
+            logger.exception("Anthropometry committed but client notification failed")
+        return result
+
+    async def _complete_protocol_subject(self, websocket, data: dict):
+        if websocket is not None and not data.get("subject_id"):
+            raise ValueError("协议写命令必须显式携带 subject_id")
+        subject_id = str(data.get("subject_id") or self.active_protocol_subject_id or "")
+        if not subject_id:
+            raise ValueError("请先创建或选择受试者")
+        try:
+            self._assert_protocol_subject_writable(subject_id)
+            report = await asyncio.to_thread(self.protocol_store.complete_subject, subject_id)
+            report_status = str(report.get("status") or "").upper()
+            bookkeeping_status = str(report.get("bookkeeping_status") or "")
+            reconciliation_required = bookkeeping_status == "REPORT_PENDING_REBUILD"
+            if reconciliation_required:
+                self._mark_protocol_reconciliation_required(subject_id)
+            success = (
+                report_status == "COMPLETE"
+                and bool(report.get("ready_to_complete"))
+                and not reconciliation_required
+            )
+            try:
+                state = self._protocol_subject_state(subject_id)
+                post_commit_error = report.get("post_commit_error")
+            except Exception as state_exc:
+                logger.exception("Completion committed but state refresh failed")
+                state = None
+                post_commit_error = f"{type(state_exc).__name__}: {state_exc}"
+            result = {
+                "success": success,
+                "operation_success": True,
+                "committed": report_status
+                in {"COMPLETE", "CORRUPTED", "REPORT_PENDING_REBUILD"},
+                "reconciliation_required": reconciliation_required,
+                "bookkeeping_status": bookkeeping_status or None,
+                "report": report,
+                "state": state,
+                "post_commit_error": post_commit_error,
+                **(
+                    {}
+                    if success
+                    else {
+                        "error": (
+                            "完成状态已落盘但报告待重建；请停止操作并重启采集服务"
+                            if reconciliation_required
+                            else "数据完整性复核失败，受试者已标记为 CORRUPTED"
+                            if report_status == "CORRUPTED"
+                            else "完成门禁未通过"
+                        )
+                    }
+                ),
+            }
+        except IncompleteSubjectError as exc:
+            try:
+                state = self._protocol_subject_state(subject_id)
+            except Exception:
+                state = None
+            result = {
+                "success": False,
+                "operation_success": True,
+                "committed": False,
+                "error": "条件采集或 M01–M13 尚未闭环",
+                "report": exc.report,
+                "state": state,
+            }
+        except ProtocolStoreError as exc:
+            try:
+                state = self._protocol_subject_state(subject_id)
+            except Exception:
+                state = None
+            result = {
+                "success": False,
+                "operation_success": False,
+                "committed": False,
+                "reconciliation_required": self._protocol_reconciliation_required(
+                    subject_id
+                ),
+                "error": str(exc),
+                "report": None,
+                "state": state,
+            }
+        try:
+            await self._emit_protocol_message(
+                websocket, {"type": "protocol_completion_result", "data": result}
+            )
+            if state is not None:
+                await self._emit_protocol_message(
+                    websocket, {"type": "protocol_subject_state", "data": state}
+                )
+            if websocket is not None:
+                await self._send_protocol_subjects(websocket)
+        except Exception:
+            logger.exception("Completion result could not be delivered to client")
+        return result
 
     async def _send_error(self, websocket, message: str):
         try:
@@ -345,6 +2677,12 @@ class WebSocketServer:
             await self._broadcast_auto_status()
 
     async def _handle_capture(self, options: dict = None):
+        if getattr(self, "is_shutting_down", False):
+            await self._broadcast({
+                "type": "capture_result",
+                "data": {"success": False, "error": "系统正在安全关闭"},
+            })
+            return None
         if self.capture_lock.locked():
             await self._broadcast({
                 "type": "capture_result",
@@ -362,7 +2700,11 @@ class WebSocketServer:
 
                 await asyncio.sleep(1)
 
-                frames = self.camera.get_frames()
+                async with self.camera_lock:
+                    frames = await asyncio.to_thread(
+                        self.active_camera_adapter.get_frames,
+                        1000,
+                    )
                 if not frames:
                     await self._broadcast({
                         "type": "capture_result",
@@ -435,9 +2777,42 @@ class WebSocketServer:
             "data": {"active": is_active}
         })
 
-    async def _send_camera_status(self, websocket=None, action: str = "status"):
-        status = self.camera.get_status()
+    def _camera_status_snapshot(self, action: str = "status") -> dict:
+        """Build a camera status snapshot while the caller owns camera_lock."""
+        adapter = self.active_camera_adapter
+        devices = self.camera_registry.list_devices()
+        active_devices = [
+            device
+            for device in devices
+            if device.get("backend") == adapter.backend
+        ]
+        status = dict(adapter.get_status(devices=active_devices))
+        status["devices"] = devices
+        status["active_backend"] = adapter.backend
         status["action"] = action
+        return status
+
+    async def _send_camera_operation(self, state: str):
+        await self._broadcast({
+            "type": "camera_operation",
+            "data": {"state": state},
+        })
+
+    async def _send_camera_status(
+        self,
+        websocket=None,
+        action: str = "status",
+        status: Optional[dict] = None,
+    ):
+        if status is None:
+            async with self.camera_lock:
+                status = await asyncio.to_thread(
+                    self._camera_status_snapshot,
+                    action,
+                )
+        else:
+            status = dict(status)
+            status["action"] = action
         message = {
             "type": "camera_status",
             "data": status
@@ -451,33 +2826,128 @@ class WebSocketServer:
         await self._broadcast(message)
 
     async def _handle_connect_camera(self, websocket=None, data: dict = None):
+        if getattr(self, "is_shutting_down", False):
+            await self._send_error(websocket, "系统正在安全关闭，拒绝连接摄像头")
+            return
         if self.capture_lock.locked():
             await self._send_error(websocket, "正在采集中，请采集结束后再连接摄像头")
             return
 
-        async with self.camera_lock:
+        async with self.camera_operation_lock:
+            await self._send_camera_operation("connecting")
+            if self.capture_lock.locked():
+                await self._send_camera_operation("idle")
+                await self._send_error(websocket, "正在采集中，请采集结束后再切换摄像头")
+                return
+
             data = data or {}
-            ok = self.camera.connect(
-                width=self.settings.camera.width,
-                height=self.settings.camera.height,
-                fps=self.settings.camera.fps,
-                params_file=self.settings.camera.params_file,
-                device_id=data.get("device_id", "")
+            device_id = str(data.get("device_id", "")).strip()
+            async with self.camera_lock:
+                if self.capture_lock.locked():
+                    operation_error = "正在采集中，请采集结束后再切换摄像头"
+                    status = None
+                    ok = False
+                else:
+                    operation_error = ""
+                    devices = await asyncio.to_thread(
+                        self.camera_registry.list_devices
+                    )
+                    if not device_id and devices:
+                        device_id = devices[0]["id"]
+                    if ":" not in device_id:
+                        match = next(
+                            (
+                                item["id"]
+                                for item in devices
+                                if device_id
+                                in {
+                                    str(item.get("serial_number", "")),
+                                    str(item.get("uid", "")),
+                                    str(item.get("index", "")),
+                                }
+                            ),
+                            None,
+                        )
+                        if match:
+                            device_id = match
+
+                    if not device_id:
+                        ok = False
+                    else:
+                        adapter = self.camera_registry.for_device(device_id)
+                        previous_adapter = self.active_camera_adapter
+                        if previous_adapter is not adapter:
+                            await asyncio.to_thread(previous_adapter.disconnect)
+                        height = (
+                            720
+                            if adapter.backend == "realsense"
+                            else self.settings.camera.height
+                        )
+                        ok = await asyncio.to_thread(
+                            adapter.connect,
+                            device_id=device_id,
+                            width=self.settings.camera.width,
+                            height=height,
+                            fps=self.settings.camera.fps,
+                            params_file=self.settings.camera.params_file,
+                        )
+                        self.active_camera_adapter = adapter
+                    status = await asyncio.to_thread(
+                        self._camera_status_snapshot,
+                        "connect",
+                    )
+
+            if operation_error:
+                await self._send_camera_operation("idle")
+                await self._send_error(websocket, operation_error)
+                return
+            if ok:
+                logger.info(f"Camera connected by client request: {device_id}")
+            else:
+                logger.warning(
+                    "Camera connect failed: {}",
+                    status.get("message") or "未检测到可连接的摄像头",
+                )
+            await self._send_camera_status(
+                websocket,
+                action="connect",
+                status=status,
             )
             if ok:
-                logger.info("Camera connected by client request")
-            else:
-                logger.warning(f"Camera connect failed: {self.camera.get_status().get('message')}")
-            await self._send_camera_status(websocket, action="connect")
+                await self._ensure_preview_task()
 
     async def _handle_disconnect_camera(self, websocket=None):
+        if getattr(self, "is_shutting_down", False):
+            await self._send_error(websocket, "系统正在安全关闭")
+            return
         if self.capture_lock.locked():
             await self._send_error(websocket, "正在采集中，请采集结束后再断开摄像头")
             return
 
-        async with self.camera_lock:
-            self.camera.release()
-            self.depth_analyzer.reset()
+        async with self.camera_operation_lock:
+            await self._send_camera_operation("disconnecting")
+            if self.capture_lock.locked():
+                await self._send_camera_operation("idle")
+                await self._send_error(websocket, "正在采集中，请采集结束后再断开摄像头")
+                return
+
+            async with self.camera_lock:
+                if self.capture_lock.locked():
+                    operation_error = "正在采集中，请采集结束后再断开摄像头"
+                    status = None
+                else:
+                    operation_error = ""
+                    await asyncio.to_thread(self.active_camera_adapter.disconnect)
+                    self.depth_analyzer.reset()
+                    status = await asyncio.to_thread(
+                        self._camera_status_snapshot,
+                        "disconnect",
+                    )
+
+            if operation_error:
+                await self._send_camera_operation("idle")
+                await self._send_error(websocket, operation_error)
+                return
             await self._broadcast({
                 "type": "preview_frame",
                 "data": {
@@ -491,7 +2961,11 @@ class WebSocketServer:
                     }
                 }
             })
-            await self._send_camera_status(websocket, action="disconnect")
+            await self._send_camera_status(
+                websocket,
+                action="disconnect",
+                status=status,
+            )
 
     async def _process_http_request(self, connection, request):
         if request.path == "/health":
@@ -525,8 +2999,25 @@ class WebSocketServer:
                 cors_headers = []
 
             body = json.dumps({"token": self.auth_token}).encode("utf-8")
-            headers = Headers([("Content-Type", "application/json"), *cors_headers])
+            headers = Headers([
+                ("Content-Type", "application/json"),
+                ("Cache-Control", "no-store, max-age=0"),
+                ("Pragma", "no-cache"),
+                *cors_headers,
+            ])
             return Response(200, "OK", headers, body)
+        if request.headers.get("Upgrade", "").lower() != "websocket":
+            origin = request.headers.get("Origin")
+            body = json.dumps({
+                "ok": False,
+                "service": "body-posture-backend",
+                "message": "Use /health to check backend status, or connect with WebSocket."
+            }, ensure_ascii=False).encode("utf-8")
+            headers = Headers([
+                ("Content-Type", "application/json"),
+                *_cors_headers_for_origin(origin)
+            ])
+            return Response(404, "Not Found", headers, body)
         return None
 
     async def _handle_client(self, websocket):
@@ -593,11 +3084,83 @@ class WebSocketServer:
     async def _process_message(self, websocket, data: dict):
         msg_type = data.get("type")
 
-        if msg_type == "start_preview":
+        if msg_type == "get_protocol_catalog":
+            await websocket.send(json.dumps({
+                "type": "protocol_catalog",
+                "data": self._protocol_catalog(),
+            }, ensure_ascii=False))
+        elif msg_type == "get_protocol_subjects":
+            await self._send_protocol_subjects(websocket)
+        elif msg_type == "create_protocol_subject":
+            await self._create_protocol_subject(websocket, data)
+        elif msg_type == "select_protocol_subject":
+            await self._select_protocol_subject(websocket, data)
+        elif msg_type == "set_protocol_preview_condition":
+            await self._set_protocol_preview_condition(websocket, data)
+        elif msg_type == "capture_protocol_condition":
+            try:
+                await self._capture_protocol_condition(websocket, data)
+            except Exception as exc:
+                logger.warning(f"Protocol capture rejected: {exc}")
+                state = None
+                subject_id = str(data.get("subject_id") or "")
+                if subject_id:
+                    try:
+                        state = self._protocol_subject_state(subject_id)
+                    except Exception:
+                        pass
+                await websocket.send(json.dumps({
+                    "type": "protocol_capture_result",
+                    "data": {
+                        "success": False,
+                        "operation_success": False,
+                        "committed": False,
+                        "error": str(exc),
+                        "state": state,
+                    },
+                }, ensure_ascii=False))
+                if state is not None:
+                    await websocket.send(json.dumps({
+                        "type": "protocol_subject_state",
+                        "data": state,
+                    }, ensure_ascii=False))
+        elif msg_type == "protocol_review_capture":
+            try:
+                await self._review_protocol_capture(websocket, data)
+            except Exception as exc:
+                logger.warning(f"Protocol review rejected: {exc}")
+                await websocket.send(json.dumps({
+                    "type": "protocol_review_result",
+                    "data": {"success": False, "error": str(exc)},
+                }, ensure_ascii=False))
+        elif msg_type == "get_protocol_review_preview":
+            try:
+                await self._send_protocol_review_preview(websocket, data)
+            except Exception as exc:
+                logger.warning(f"Protocol review preview rejected: {exc}")
+                await websocket.send(json.dumps({
+                    "type": "protocol_review_preview",
+                    "data": {"success": False, "error": str(exc)},
+                }, ensure_ascii=False))
+        elif msg_type == "save_anthropometry":
+            try:
+                await self._save_protocol_anthropometry(websocket, data)
+            except Exception as exc:
+                logger.warning(f"Anthropometry rejected: {exc}")
+                await websocket.send(json.dumps({
+                    "type": "anthropometry_result",
+                    "data": {"success": False, "error": str(exc)},
+                }, ensure_ascii=False))
+        elif msg_type == "complete_protocol_subject":
+            await self._complete_protocol_subject(websocket, data)
+        elif msg_type == "start_preview":
             await self._start_preview(websocket)
         elif msg_type == "stop_preview":
             await self._stop_preview()
         elif msg_type == "capture_single":
+            if self.active_protocol_subject_id:
+                await self._send_error(websocket, "协议模式下请使用当前条件的五帧采集")
+                return
             await self._handle_capture(data.get("options"))
         elif msg_type == "connect_camera":
             await self._handle_connect_camera(websocket, data)
@@ -606,6 +3169,9 @@ class WebSocketServer:
         elif msg_type == "get_camera_status":
             await self._send_camera_status(websocket, action="status")
         elif msg_type == "start_auto_capture":
+            if self.active_protocol_subject_id:
+                await self._send_error(websocket, "协议模式不允许旧版自动连拍绕过条件矩阵")
+                return
             await self._start_auto_capture(data)
         elif msg_type == "stop_auto_capture":
             await self._stop_auto_capture()
@@ -620,10 +3186,18 @@ class WebSocketServer:
             except Exception:
                 pass
         elif msg_type == "get_distance":
-            distance = self.camera.get_center_distance()
-            depth_frame = self.camera.get_frames()
+            if self.capture_lock.locked():
+                await self._send_error(websocket, "协议 burst 采集中，暂不读取额外距离帧")
+                return
+            async with self.camera_lock:
+                depth_frame = await asyncio.to_thread(
+                    self.active_camera_adapter.get_frames, 1000
+                )
             if depth_frame and depth_frame.depth is not None:
-                distance_info = self.depth_analyzer.analyze_distance(depth_frame.depth)
+                distance_info = self.depth_analyzer.analyze_distance(
+                    depth_frame.depth,
+                    depth_scale=depth_frame.depth_scale,
+                )
                 try:
                     await websocket.send(json.dumps({
                         "type": "distance_update",
@@ -640,7 +3214,10 @@ class WebSocketServer:
             if self.voice_synthesizer:
                 self.voice_synthesizer.speak(text, blocking=False)
         elif msg_type == "finish_session":
-            await self._handle_finish()
+            if self.active_protocol_subject_id:
+                await self._complete_protocol_subject(websocket, data)
+            else:
+                await self._handle_finish()
         elif msg_type == "get_sessions":
             sessions = self.data_collector.get_session_list()
             try:
@@ -685,30 +3262,38 @@ class WebSocketServer:
             if not _is_local_connection(websocket):
                 await self._send_error(websocket, "exit_app is only allowed from localhost")
                 return
+            if self.capture_lock.locked():
+                await self._send_error(
+                    websocket, "正在写入五帧 burst，已拒绝退出；请等待本次提交完成"
+                )
+                return
+            # No await occurs between the lock check and this gate, so another
+            # websocket task cannot start a capture in the shutdown window.
+            self.is_shutting_down = True
             logger.info("Exit command received from client")
             await self._broadcast({
                 "type": "exit_confirm",
                 "data": {"message": "系统即将关闭"}
             })
-            await asyncio.sleep(0.5)
+            await self._stop_preview()
             self._shutdown()
         else:
             await self._send_error(websocket, f"Unknown message type: {msg_type}")
 
     async def _start_preview(self, websocket):
+        del websocket
+        await self._ensure_preview_task()
+
+    async def _ensure_preview_task(self):
         self.is_previewing = True
-        if self.preview_task and not self.preview_task.done():
-            self.preview_task.cancel()
-            try:
-                await self.preview_task
-            except (asyncio.CancelledError, Exception):
-                pass
-        self.preview_task = asyncio.create_task(self._preview_loop())
+        task = getattr(self, "preview_task", None)
+        if task is None or task.done():
+            self.preview_task = asyncio.create_task(self._preview_loop())
+        return self.preview_task
 
     async def _stop_preview(self):
         self.is_previewing = False
         if self.preview_task and not self.preview_task.done():
-            self.preview_task.cancel()
             try:
                 await self.preview_task
             except (asyncio.CancelledError, Exception):
@@ -716,6 +3301,8 @@ class WebSocketServer:
         self.preview_task = None
 
     async def _preview_loop(self):
+        current_task = asyncio.current_task()
+        consecutive_errors = 0
         try:
             import time
             while self.is_previewing and self.clients:
@@ -723,42 +3310,83 @@ class WebSocketServer:
                 if self.is_capturing:
                     await asyncio.sleep(max(0.1, 1.0 / max(1, self.settings.gui.preview_fps)))
                     continue
-                
-                frames = self.camera.get_frames()
-                color_preview = ""
-                depth_preview = ""
-                distance_data = None
+                try:
+                    async with self.camera_lock:
+                        frames = await asyncio.to_thread(
+                            self.active_camera_adapter.get_frames,
+                            1000,
+                        )
+                    color_preview = ""
+                    depth_preview = ""
 
-                if frames and frames.color is not None:
-                    color_preview = self.frame_processor.encode_preview_fast(frames.color, is_rgb=True)
+                    if frames and frames.color is not None:
+                        color_preview = self.frame_processor.encode_preview_fast(
+                            frames.color, is_rgb=True
+                        )
 
-                if frames and frames.depth is not None:
-                    depth_preview = self.frame_processor.encode_depth_preview_fast(frames.depth, frames.depth_scale)
-                    distance_info = self.depth_analyzer.analyze_distance(frames.depth, depth_scale=frames.depth_scale)
-                    distance_data = {
-                        "distance_mm": distance_info.distance_mm,
-                        "status": distance_info.status.value,
-                        "message": distance_info.message,
-                        "confidence": distance_info.confidence
-                    }
-                    await self._update_auto_capture(distance_info)
-                else:
-                    await self._update_auto_capture(None)
-                    distance_data = {
-                        "distance_mm": 0,
-                        "status": DistanceStatus.NO_DATA.value,
-                        "message": self.camera.last_error or "摄像头未连接",
-                        "confidence": 0
-                    }
+                    if frames and frames.depth is not None:
+                        depth_preview = self.frame_processor.encode_depth_preview_fast(
+                            frames.depth, frames.depth_scale
+                        )
+                        distance_info = self.depth_analyzer.analyze_distance(
+                            frames.depth, depth_scale=frames.depth_scale
+                        )
+                        distance_data = {
+                            "distance_mm": distance_info.distance_mm,
+                            "status": distance_info.status.value,
+                            "message": distance_info.message,
+                            "confidence": distance_info.confidence,
+                        }
+                        await self._update_auto_capture(distance_info)
+                    else:
+                        await self._update_auto_capture(None)
+                        distance_data = {
+                            "distance_mm": 0,
+                            "status": DistanceStatus.NO_DATA.value,
+                            "message": getattr(
+                                self.active_camera_adapter, "last_error", ""
+                            )
+                            or "摄像头未连接",
+                            "confidence": 0,
+                        }
 
-                await self._broadcast({
-                    "type": "preview_frame",
-                    "data": {
-                        "color": color_preview,
-                        "depth": depth_preview,
-                        "distance": distance_data
-                    }
-                })
+                    await self._broadcast({
+                        "type": "preview_frame",
+                        "data": {
+                            "color": color_preview,
+                            "depth": depth_preview,
+                            "distance": distance_data,
+                        },
+                    })
+                    consecutive_errors = 0
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    consecutive_errors += 1
+                    logger.error(
+                        "Preview frame failed (attempt {}): {}",
+                        consecutive_errors,
+                        exc,
+                    )
+                    await self._broadcast({
+                        "type": "preview_frame",
+                        "data": {
+                            "color": "",
+                            "depth": "",
+                            "distance": {
+                                "distance_mm": 0,
+                                "status": DistanceStatus.NO_DATA.value,
+                                "message": "预览暂时中断，正在自动重试",
+                                "confidence": 0,
+                            },
+                        },
+                    })
+                    retry_delay = min(
+                        1.0,
+                        0.1 * (2 ** min(consecutive_errors - 1, 3)),
+                    )
+                    await asyncio.sleep(retry_delay)
+                    continue
 
                 elapsed = time.time() - start_time
                 target_interval = 1.0 / self.settings.gui.preview_fps
@@ -767,8 +3395,11 @@ class WebSocketServer:
                     await asyncio.sleep(sleep_time)
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            logger.error(f"Preview loop error: {e}")
+        except Exception as exc:
+            logger.error("Preview loop stopped unexpectedly: {}", exc)
+        finally:
+            if getattr(self, "preview_task", None) is current_task:
+                self.preview_task = None
 
     async def _broadcast(self, message: dict):
         if not self.clients:
@@ -795,7 +3426,7 @@ class WebSocketServer:
             with open(token_file, 'w') as f:
                 f.write(self.auth_token)
 
-            camera_ok = self.camera.connect(
+            camera_ok = self.active_camera_adapter.connect(
                 width=self.settings.camera.width,
                 height=self.settings.camera.height,
                 fps=self.settings.camera.fps,
@@ -804,14 +3435,17 @@ class WebSocketServer:
 
             self._ws_server = await websockets.serve(
                 self._handle_client, self.host, self.port,
-                process_request=self._process_http_request
+                process_request=self._process_http_request,
+                logger=_get_websocket_logger()
             )
             logger.info(f"WebSocket server started on ws://{self.host}:{self.port}")
 
             if camera_ok:
                 logger.info("Camera ready")
             else:
-                logger.warning(f"Camera not connected: {self.camera.get_status().get('message')}")
+                logger.warning(
+                    f"Camera not connected: {self.active_camera_adapter.get_status().get('message')}"
+                )
 
             if self.voice_synthesizer:
                 self.voice_synthesizer.speak("系统已启动", blocking=False)
@@ -836,9 +3470,15 @@ class WebSocketServer:
                 self._ws_server.close()
             except Exception:
                 pass
-        if self.camera:
+        for adapter in self.camera_registry.adapters.values():
             try:
-                self.camera.release()
+                adapter.disconnect()
+            except Exception:
+                pass
+        protocol_store = getattr(self, "protocol_store", None)
+        if protocol_store is not None and hasattr(protocol_store, "close"):
+            try:
+                protocol_store.close()
             except Exception:
                 pass
         self.loop = None
@@ -857,8 +3497,9 @@ class WebSocketServer:
         except Exception:
             pass
 
-        import os
-        os._exit(0)
+        # Closing the websocket server lets start()/asyncio.run unwind
+        # normally.  Avoid os._exit(), which can interrupt atomic rename or
+        # manifest/state fsync in another task.
 
 
 async def main():
@@ -866,6 +3507,8 @@ async def main():
     try:
         await server.start()
     except KeyboardInterrupt:
+        pass
+    finally:
         server.stop()
 
 

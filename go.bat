@@ -22,9 +22,17 @@ if /i not "%PYTHON_CMD%"=="python" (
 )
 
 if not defined NEED_INSTALL (
-  "%PYTHON_CMD%" -c "import pydantic, websockets, cv2, numpy, loguru" >nul 2>nul
+  "%PYTHON_CMD%" -c "import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 12) else 1)" >nul 2>nul
   if errorlevel 1 (
-    echo [WARN] Backend Python dependencies are incomplete.
+    echo [WARN] Python 3.10 or 3.11 is required by the D435i runtime.
+    set "NEED_INSTALL=1"
+  )
+)
+
+if not defined NEED_INSTALL (
+  "%PYTHON_CMD%" -c "import pydantic, websockets, cv2, numpy, loguru, pyorbbecsdk, pyrealsense2" >nul 2>nul
+  if errorlevel 1 (
+    echo [WARN] Backend or RGB-D camera SDK dependencies are incomplete.
     set "NEED_INSTALL=1"
   )
 )
@@ -57,6 +65,13 @@ if defined NEED_INSTALL (
       pause
       exit /b 1
     )
+  )
+  "%PYTHON_CMD%" -c "import pyorbbecsdk, pyrealsense2" >nul 2>nul
+  if errorlevel 1 (
+    echo [ERROR] Gemini 336L or D435i Python SDK is still unavailable.
+    echo Required imports: pyorbbecsdk and pyrealsense2
+    pause
+    exit /b 1
   )
   if not exist "frontend\node_modules\.bin\vite.cmd" (
     echo.

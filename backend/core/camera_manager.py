@@ -1,7 +1,7 @@
 import json
 import cv2
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Dict, Any
 from loguru import logger
@@ -46,8 +46,12 @@ class FrameData:
     color: Optional[np.ndarray]
     depth: Optional[np.ndarray]
     depth_scale: float
-    timestamp: int
+    timestamp: float
     frame_number: int
+    depth_raw: Optional[np.ndarray] = None
+    infrared: Dict[str, np.ndarray] = field(default_factory=dict)
+    stream_timestamps: Dict[str, float] = field(default_factory=dict)
+    stream_frame_numbers: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -79,6 +83,8 @@ class CameraManager:
         self.frame_count = 0
         self.last_error = ""
         self.device_info = {}
+        self.enabled_ir_streams = []
+        self.active_stream_profiles: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def _frame_format(frame):
@@ -181,6 +187,54 @@ class CameraManager:
             logger.error(f"Failed to decode depth frame: {e}")
             return None
 
+    def _decode_ir_frame(self, ir_frame) -> Optional[np.ndarray]:
+        """Decode an Orbbec IR frame without inventing unavailable channels."""
+
+        try:
+            width = ir_frame.get_width()
+            height = ir_frame.get_height()
+            frame_format = self._frame_format(ir_frame)
+            data = self._frame_data(ir_frame)
+            expected_u16 = width * height * 2
+
+            if frame_format in (OBFormat.Y16, OBFormat.RW16) or data.size >= expected_u16:
+                infrared = np.frombuffer(data[:expected_u16].tobytes(), dtype=np.uint16)
+                return infrared.reshape((height, width))
+
+            if frame_format == OBFormat.Y8 or data.size >= width * height:
+                return data[:width * height].reshape((height, width)).copy()
+
+            logger.warning(
+                f"Unsupported IR frame format: {frame_format}, bytes={data.size}, "
+                f"size={width}x{height}"
+            )
+            return None
+        except Exception as e:
+            logger.error(f"Failed to decode IR frame: {e}")
+            return None
+
+    @staticmethod
+    def _frame_timestamp_ms(frame) -> Optional[float]:
+        if frame is None:
+            return None
+        for method_name, divisor in (("get_timestamp_us", 1000.0), ("get_timestamp", 1.0)):
+            try:
+                return float(getattr(frame, method_name)()) / divisor
+            except Exception:
+                continue
+        return None
+
+    @staticmethod
+    def _frame_number(frame) -> Optional[int]:
+        if frame is None:
+            return None
+        for method_name in ("get_index", "get_frame_number"):
+            try:
+                return int(getattr(frame, method_name)())
+            except Exception:
+                continue
+        return None
+
     @staticmethod
     def _safe_device_list_value(device_list, method_name: str, index: int):
         try:
@@ -233,10 +287,15 @@ class CameraManager:
         selected_info = devices[0] if devices else {}
 
         if device_id:
+            matched = False
             for item in devices:
                 if device_id in {item.get("id"), item.get("serial_number"), item.get("uid"), str(item.get("index"))}:
                     selected_info = item
+                    matched = True
                     break
+            if not matched:
+                logger.error(f"Requested Orbbec device was not found: {device_id}")
+                return None, {}
 
         try:
             serial = selected_info.get("serial_number")
@@ -250,6 +309,8 @@ class CameraManager:
                 selected = device_list.get_device_by_index(index)
         except Exception as e:
             logger.warning(f"Failed to select Orbbec device {device_id}: {e}")
+            if device_id:
+                return None, selected_info
             selected = device_list.get_device_by_index(0)
             selected_info = devices[0] if devices else {}
 
@@ -270,8 +331,63 @@ class CameraManager:
                 logger.error(f"Failed to get default {stream_name} stream profile: {default_error}")
                 return None
 
-    def get_status(self) -> Dict[str, Any]:
-        devices = self.list_devices()
+    @staticmethod
+    def _profile_summary(profile, *, source: str = "negotiated") -> Dict[str, Any]:
+        if profile is None:
+            return {}
+        summary: Dict[str, Any] = {"source": source}
+        for key, method_name in (
+            ("width", "get_width"),
+            ("height", "get_height"),
+            ("fps", "get_fps"),
+        ):
+            try:
+                summary[key] = int(getattr(profile, method_name)())
+            except Exception:
+                summary[key] = None
+        try:
+            summary["format"] = str(profile.get_format())
+        except Exception as exc:
+            summary["format"] = None
+            summary["format_error"] = f"{type(exc).__name__}: {exc}"
+        return summary
+
+    def get_runtime_control_snapshot(self) -> Dict[str, Any]:
+        """Read auditable controls without inventing unsupported values."""
+
+        result: Dict[str, Any] = {}
+        if not HAS_ORBBEC or not self.pipeline:
+            return {
+                name: {"value": None, "error": "device_not_connected"}
+                for name in CAMERA_PARAMS_MAP
+            }
+        try:
+            device = self.pipeline.get_device()
+        except Exception as exc:
+            return {
+                name: {
+                    "value": None,
+                    "error": f"device_query_failed: {type(exc).__name__}: {exc}",
+                }
+                for name in CAMERA_PARAMS_MAP
+            }
+        for name, (property_id, property_type) in CAMERA_PARAMS_MAP.items():
+            try:
+                value = (
+                    bool(device.get_bool_property(property_id))
+                    if property_type is bool
+                    else int(device.get_int_property(property_id))
+                )
+                result[name] = {"value": value, "error": None}
+            except Exception as exc:
+                result[name] = {
+                    "value": None,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+        return result
+
+    def get_status(self, devices: Optional[list[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        devices = self.list_devices() if devices is None else list(devices)
         device = self.device_info or (devices[0] if devices else {})
         connected = bool(HAS_ORBBEC and self.pipeline and self.is_initialized and self.is_streaming)
         device_present = bool(devices or device or connected)
@@ -347,6 +463,8 @@ class CameraManager:
             self.point_cloud_filter = None
             self.is_initialized = False
             self.is_streaming = False
+            self.enabled_ir_streams = []
+            self.active_stream_profiles = {}
 
             if not HAS_ORBBEC:
                 self.last_error = "未安装 Orbbec 相机 SDK"
@@ -366,6 +484,27 @@ class CameraManager:
                 logger.error(self.last_error)
                 return False
             self.device_info = selected_info
+            try:
+                hardware_info = selected_device.get_device_info()
+                identity_methods = {
+                    "firmware_version": "get_firmware_version",
+                    "hardware_version": "get_hardware_version",
+                    "pid": "get_pid",
+                    "vid": "get_vid",
+                }
+                for key, method_name in identity_methods.items():
+                    try:
+                        value = getattr(hardware_info, method_name)()
+                        self.device_info[key] = (
+                            int(value) if key in {"pid", "vid"} else str(value)
+                        )
+                    except Exception as exc:
+                        self.device_info[key] = None
+                        self.device_info[f"{key}_error"] = (
+                            f"{type(exc).__name__}: {exc}"
+                        )
+            except Exception as exc:
+                self.device_info["device_info_error"] = f"{type(exc).__name__}: {exc}"
 
             self.pipeline = Pipeline(selected_device)
             self.config = Config()
@@ -376,6 +515,13 @@ class CameraManager:
                 color_profile = self._select_video_profile(color_profiles, width, height, OBFormat.RGB, fps, "color")
                 if color_profile:
                     self.config.enable_stream(color_profile)
+                    self.active_stream_profiles["color"] = self._profile_summary(
+                        color_profile
+                    )
+                    self.active_stream_profiles["depth_aligned"] = {
+                        **self.active_stream_profiles["color"],
+                        "source": "aligned_to_color",
+                    }
                     enabled_streams += 1
 
             depth_profiles = self.pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
@@ -383,7 +529,52 @@ class CameraManager:
                 depth_profile = self._select_video_profile(depth_profiles, width, height, OBFormat.Y16, fps, "depth")
                 if depth_profile:
                     self.config.enable_stream(depth_profile)
+                    self.active_stream_profiles["depth_raw"] = self._profile_summary(
+                        depth_profile
+                    )
                     enabled_streams += 1
+
+            # Prefer the two physical stereo IR streams.  Devices exposing only
+            # one IR stream are recorded as ``single`` instead of duplicating it.
+            ir_sensor_candidates = (
+                ("left", getattr(OBSensorType, "LEFT_IR_SENSOR", None)),
+                ("right", getattr(OBSensorType, "RIGHT_IR_SENSOR", None)),
+            )
+            for ir_name, sensor_type in ir_sensor_candidates:
+                if sensor_type is None:
+                    continue
+                try:
+                    ir_profiles = self.pipeline.get_stream_profile_list(sensor_type)
+                    ir_profile = self._select_video_profile(
+                        ir_profiles, width, height, OBFormat.Y8, fps, f"{ir_name} IR"
+                    ) if ir_profiles else None
+                    if ir_profile:
+                        self.config.enable_stream(ir_profile)
+                        self.active_stream_profiles[f"ir_{ir_name}"] = (
+                            self._profile_summary(ir_profile)
+                        )
+                        self.enabled_ir_streams.append(ir_name)
+                        enabled_streams += 1
+                except Exception as e:
+                    logger.warning(f"Failed to enable {ir_name} IR stream: {e}")
+
+            if not self.enabled_ir_streams:
+                single_ir_sensor = getattr(OBSensorType, "IR_SENSOR", None)
+                if single_ir_sensor is not None:
+                    try:
+                        ir_profiles = self.pipeline.get_stream_profile_list(single_ir_sensor)
+                        ir_profile = self._select_video_profile(
+                            ir_profiles, width, height, OBFormat.Y8, fps, "single IR"
+                        ) if ir_profiles else None
+                        if ir_profile:
+                            self.config.enable_stream(ir_profile)
+                            self.active_stream_profiles["ir"] = self._profile_summary(
+                                ir_profile
+                            )
+                            self.enabled_ir_streams.append("single")
+                            enabled_streams += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to enable single IR stream: {e}")
 
             if enabled_streams == 0:
                 self.last_error = "未找到可用的相机视频流"
@@ -401,7 +592,10 @@ class CameraManager:
                 self.load_camera_params(params_file)
 
             self.is_initialized = True
-            logger.info(f"Camera initialized: {width}x{height}@{fps}fps")
+            logger.info(
+                f"Camera initialized: {width}x{height}@{fps}fps, "
+                f"IR={self.enabled_ir_streams or 'unavailable'}"
+            )
             return True
         except OBError as e:
             self.last_error = f"初始化相机失败: {e}"
@@ -466,16 +660,19 @@ class CameraManager:
             if not frames:
                 return None
 
-            color_frame = frames.get_color_frame()
-            depth_frame = frames.get_depth_frame()
+            color_frame_raw = frames.get_color_frame()
+            depth_frame_raw = frames.get_depth_frame()
 
-            if not color_frame or not depth_frame:
+            if not color_frame_raw or not depth_frame_raw:
                 return None
 
             aligned_frames = self.align_filter.process(frames) if self.align_filter else None
-            if aligned_frames:
-                color_frame = aligned_frames.get_color_frame()
-                depth_frame = aligned_frames.get_depth_frame()
+            color_frame = (
+                aligned_frames.get_color_frame() if aligned_frames else color_frame_raw
+            ) or color_frame_raw
+            depth_frame_aligned = (
+                aligned_frames.get_depth_frame() if aligned_frames else None
+            )
 
             color_data = None
             if color_frame:
@@ -485,37 +682,101 @@ class CameraManager:
                         f"size={color_frame.get_width()}x{color_frame.get_height()}, "
                         f"bytes={self._frame_data(color_frame).size}"
                     )
-                color_data = self._decode_color_frame(color_frame)
+                decoded_color = self._decode_color_frame(color_frame)
+                color_data = decoded_color.copy() if decoded_color is not None else None
 
-            depth_data = None
+            depth_raw_data = None
+            depth_aligned_data = None
             depth_scale = 1.0
-            if depth_frame:
-                raw_scale = depth_frame.get_depth_scale()
+            if depth_frame_raw:
+                raw_scale = depth_frame_raw.get_depth_scale()
                 if raw_scale > 0:
                     depth_scale = raw_scale
                 if self.frame_count == 0:
                     logger.info(
-                        f"Depth frame: format={self._frame_format(depth_frame)}, "
-                        f"size={depth_frame.get_width()}x{depth_frame.get_height()}, "
-                        f"bytes={self._frame_data(depth_frame).size}"
+                        f"Raw depth frame: format={self._frame_format(depth_frame_raw)}, "
+                        f"size={depth_frame_raw.get_width()}x{depth_frame_raw.get_height()}, "
+                        f"bytes={self._frame_data(depth_frame_raw).size}"
                     )
-                depth_data = self._decode_depth_frame(depth_frame)
-                if depth_data is not None and self.frame_count == 0:
-                    valid = depth_data[depth_data > 0]
-                    logger.info(f"Depth scale: raw={raw_scale}, used={depth_scale}, raw_range={depth_data.min()}-{depth_data.max()}, valid_count={len(valid)}")
+                decoded_depth_raw = self._decode_depth_frame(depth_frame_raw)
+                depth_raw_data = (
+                    decoded_depth_raw.copy() if decoded_depth_raw is not None else None
+                )
+                if depth_raw_data is not None and self.frame_count == 0:
+                    valid = depth_raw_data[depth_raw_data > 0]
+                    logger.info(f"Depth scale: raw={raw_scale}, used={depth_scale}, raw_range={depth_raw_data.min()}-{depth_raw_data.max()}, valid_count={len(valid)}")
                     if len(valid) > 0:
                         logger.info(f"  mm_range: {valid.min() * depth_scale:.0f}-{valid.max() * depth_scale:.0f}mm")
 
-            if color_data is None and depth_data is None:
+            if depth_frame_aligned:
+                decoded_depth_aligned = self._decode_depth_frame(depth_frame_aligned)
+                depth_aligned_data = (
+                    decoded_depth_aligned.copy()
+                    if decoded_depth_aligned is not None
+                    else None
+                )
+
+            infrared_frames = {}
+            infrared_getters = {
+                "left": "get_left_ir_frame",
+                "right": "get_right_ir_frame",
+                "single": "get_ir_frame",
+            }
+            for name in self.enabled_ir_streams:
+                try:
+                    ir_frame = getattr(frames, infrared_getters[name])()
+                except Exception:
+                    ir_frame = None
+                if ir_frame:
+                    decoded_ir = self._decode_ir_frame(ir_frame)
+                    if decoded_ir is not None:
+                        infrared_frames[name] = decoded_ir.copy()
+
+            if color_data is None and depth_raw_data is None and depth_aligned_data is None:
                 return None
 
             self.frame_count += 1
+            stream_frames = {
+                "color": color_frame_raw,
+                "depth_raw": depth_frame_raw,
+                "depth_aligned": depth_frame_aligned,
+            }
+            for name in infrared_frames:
+                try:
+                    stream_frames[f"ir_{name}"] = getattr(
+                        frames, infrared_getters[name]
+                    )()
+                except Exception:
+                    pass
+
+            stream_timestamps = {
+                name: timestamp
+                for name, frame in stream_frames.items()
+                if (timestamp := self._frame_timestamp_ms(frame)) is not None
+            }
+            stream_frame_numbers = {
+                name: number
+                for name, frame in stream_frames.items()
+                if (number := self._frame_number(frame)) is not None
+            }
+            timestamp = self._frame_timestamp_ms(frames)
+            # Some Gemini 336L SDK builds report a frameset timestamp of 0
+            # even though each native stream carries a valid device clock.
+            # A zero primary clock would make every burst look duplicated.
+            if timestamp is None or timestamp <= 0:
+                timestamp = stream_timestamps.get("color", 0.0)
+            frame_number = stream_frame_numbers.get("color", self.frame_count)
+
             return FrameData(
                 color=color_data,
-                depth=depth_data,
+                depth=depth_aligned_data,
                 depth_scale=depth_scale,
-                timestamp=self.frame_count * 33,
-                frame_number=self.frame_count
+                timestamp=timestamp,
+                frame_number=frame_number,
+                depth_raw=depth_raw_data,
+                infrared=infrared_frames,
+                stream_timestamps=stream_timestamps,
+                stream_frame_numbers=stream_frame_numbers,
             )
         except Exception as e:
             logger.error(f"Failed to get frames: {e}")
@@ -616,6 +877,8 @@ class CameraManager:
             self.point_cloud_filter = None
             self.is_initialized = False
             self.is_streaming = False
+            self.enabled_ir_streams = []
+            self.active_stream_profiles = {}
             logger.info("Camera released")
         except Exception as e:
             logger.error(f"Failed to release camera: {e}")

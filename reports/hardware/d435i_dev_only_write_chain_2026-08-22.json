@@ -1,0 +1,194 @@
+{
+  "schema_version": "1.0",
+  "mode": "DEV_ONLY",
+  "formal_dataset_eligible": false,
+  "run_id": "20260822_d435i_write_chain_01",
+  "backend": "realsense",
+  "camera_code": "CD435I",
+  "subject_id": "S9002",
+  "artifact_root": "data/dev_only_validation/20260822_d435i_write_chain_01_realsense",
+  "protocol_root": "data/dev_only_validation/20260822_d435i_write_chain_01_realsense/realanthro_rgbd_v1/collections/dev_only_collection",
+  "review_policy": {
+    "decision": "REJECT",
+    "reason": "DEV_ONLY 联调画面仅用于验证 F03 证据链，不得进入正式人体数据集",
+    "expected_condition_status": "NEEDS_RETAKE"
+  },
+  "devices": [
+    {
+      "id": "realsense:243722074968",
+      "backend": "realsense",
+      "index": 0,
+      "name": "Intel RealSense D435I",
+      "serial_number": "243722074968",
+      "firmware_version": "5.15.1.55",
+      "product_line": "D400",
+      "product_id": "0B3A",
+      "usb_type_descriptor": "3.2",
+      "sdk": "pyrealsense2",
+      "sdk_version": "2.54.2.5684",
+      "sdk_available": true,
+      "camera_code": "CD435I",
+      "protocol_model_verified": true
+    }
+  ],
+  "device_id": "243722074968",
+  "connected": true,
+  "adapter_status": {
+    "backend": "realsense",
+    "sdk_available": true,
+    "device_present": true,
+    "connected": true,
+    "initialized": true,
+    "streaming": true,
+    "device": {
+      "id": "realsense:243722074968",
+      "backend": "realsense",
+      "index": 0,
+      "name": "Intel RealSense D435I",
+      "serial_number": "243722074968",
+      "firmware_version": "5.15.1.55",
+      "product_line": "D400",
+      "product_id": "0B3A",
+      "usb_type_descriptor": "3.2",
+      "sdk": "pyrealsense2",
+      "sdk_version": "2.54.2.5684",
+      "sdk_available": true,
+      "camera_code": "CD435I",
+      "protocol_model_verified": true,
+      "depth_scale_meters_per_unit": 0.0010000000474974513,
+      "stream_preflight": {
+        "passed": true,
+        "timeout_ms": 5000,
+        "required_modalities": [
+          "color",
+          "depth_raw",
+          "depth_aligned",
+          "infrared_left",
+          "infrared_right"
+        ]
+      }
+    },
+    "devices": [
+      {
+        "id": "realsense:243722074968",
+        "backend": "realsense",
+        "index": 0,
+        "name": "Intel RealSense D435I",
+        "serial_number": "243722074968",
+        "firmware_version": "5.15.1.55",
+        "product_line": "D400",
+        "product_id": "0B3A",
+        "usb_type_descriptor": "3.2",
+        "sdk": "pyrealsense2",
+        "sdk_version": "2.54.2.5684",
+        "sdk_available": true,
+        "camera_code": "CD435I",
+        "protocol_model_verified": true
+      }
+    ],
+    "message": "RealSense 相机已连接"
+  },
+  "condition": {
+    "condition_id": "CD435I_D3000_V000_LSTD_P1_CF_R01",
+    "distance_mm": 3000,
+    "view_yaw_deg": 0,
+    "light_id": "LSTD",
+    "pose_id": "P1",
+    "clothing_id": "CF",
+    "repeat_id": 1,
+    "suite": "d435i_view"
+  },
+  "capture": {
+    "committed": true,
+    "bookkeeping_status": "COMMITTED",
+    "reconciliation_required": false,
+    "attempt_id": "A20260822T115755047699Z_8bbf6a24f5",
+    "quality_status": "WARN",
+    "failure_codes": [],
+    "warning_codes": [
+      "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+      "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+      "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+      "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+      "EXPECTED_DEPTH_REGION_GEOMETRY_PILOT",
+      "HUMAN_CONTENT_MANUAL_REVIEW"
+    ],
+    "calibration_sha256": "910bdc7427b6bb251cff6367a473484c693b4b067eabe3721547b19a71de0385"
+  },
+  "f03_evidence": {
+    "anchor_frame": "F03",
+    "source": "verified_committed_files",
+    "rgb_preview_present": true,
+    "depth_preview_present": true,
+    "evidence_sha256": "2644f326fbafe97099ddd77f5795765265390127788cf80e311801da9c6b1bfc",
+    "verified_at": "2026-08-22T11:58:00.330Z"
+  },
+  "write_chain": {
+    "file_count": 25,
+    "expected_file_count": 25,
+    "modality_counts": {
+      "depth_aligned": 5,
+      "depth_raw": 5,
+      "ir_left": 5,
+      "ir_right": 5,
+      "rgb": 5
+    },
+    "sidecar_names": [
+      "capture.json",
+      "commit.json",
+      "qc.json"
+    ],
+    "sidecars": {
+      "capture.json": {
+        "sha256": "d848f54f906d52b172f7f702db0326ddbcf029ee242f825ba3064ed176b9ae4f",
+        "size_bytes": 84721
+      },
+      "commit.json": {
+        "sha256": "0b49526b174a5b6a6dfad8650db026df35311f7a5eb4c4594bc0fa45c553d975",
+        "size_bytes": 9837
+      },
+      "qc.json": {
+        "sha256": "e170657f00018b8fe24e13930e7331e6d8fe4146c706b5bd755be794c716647c",
+        "size_bytes": 40973
+      }
+    },
+    "anchor_files": {
+      "rgb": {
+        "path": "D:\\Desktop\\collect human body posture data\\body_posture_collector\\data\\dev_only_validation\\20260822_d435i_write_chain_01_realsense\\realanthro_rgbd_v1\\collections\\dev_only_collection\\subjects\\S9002\\cameras\\CD435I\\conditions\\CD435I_D3000_V000_LSTD_P1_CF_R01\\attempts\\A20260822T115755047699Z_8bbf6a24f5\\rgb\\S9002_CD435I_D3000_V000_LSTD_P1_CF_R01_F03.png",
+        "relative_path": "subjects/S9002/cameras/CD435I/conditions/CD435I_D3000_V000_LSTD_P1_CF_R01/attempts/A20260822T115755047699Z_8bbf6a24f5/rgb/S9002_CD435I_D3000_V000_LSTD_P1_CF_R01_F03.png",
+        "size_bytes": 2770032,
+        "sha256": "eaa3949f389208948ec23d4e413b324f4541a65fbc0c361a0d206c7df5b5f887"
+      },
+      "depth_aligned": {
+        "path": "D:\\Desktop\\collect human body posture data\\body_posture_collector\\data\\dev_only_validation\\20260822_d435i_write_chain_01_realsense\\realanthro_rgbd_v1\\collections\\dev_only_collection\\subjects\\S9002\\cameras\\CD435I\\conditions\\CD435I_D3000_V000_LSTD_P1_CF_R01\\attempts\\A20260822T115755047699Z_8bbf6a24f5\\depth_aligned\\S9002_CD435I_D3000_V000_LSTD_P1_CF_R01_F03.png",
+        "relative_path": "subjects/S9002/cameras/CD435I/conditions/CD435I_D3000_V000_LSTD_P1_CF_R01/attempts/A20260822T115755047699Z_8bbf6a24f5/depth_aligned/S9002_CD435I_D3000_V000_LSTD_P1_CF_R01_F03.png",
+        "size_bytes": 1846963,
+        "sha256": "fe1be5f1fdc412318b55baeccb49ffd5c27ee9f492c2d4f1b63a7ef3a2a3ebc4"
+      }
+    },
+    "anchor_evidence_sha256": "2644f326fbafe97099ddd77f5795765265390127788cf80e311801da9c6b1bfc",
+    "review": {
+      "decision": "REJECT",
+      "review_status": "REJECTED",
+      "path": "meta/reviews/A20260822T115755047699Z_8bbf6a24f5/RV20260822T115800356622Z_6e70f5e9.json",
+      "file_sha256": "30e8259b501a3ad8b641acd64150e1e8290d5bdefa027c3bb37aab0948ac2df4",
+      "file_sha256_verified": true,
+      "content_sha256": "74de1c5096ad13d3261031798302a3499a732b452fdd21571a4bf7fa8425c4f3"
+    },
+    "condition_status_after_review": "NEEDS_RETAKE",
+    "accepted_attempt_id": null,
+    "review_operation_committed": true,
+    "review_bookkeeping_status": "COMMITTED"
+  },
+  "audit": {
+    "verify_committed": true,
+    "subjects_scanned": 1,
+    "write_failed_attempts": 0,
+    "aborted_attempts": 0,
+    "audit_errors": [],
+    "completion_status": "INCOMPLETE",
+    "completion_integrity_errors": [],
+    "formal_completion_intentionally_blocked": true
+  },
+  "dev_only_pass": true
+}

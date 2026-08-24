@@ -32,11 +32,17 @@
 
 .preview-action {
   color: var(--text-secondary);
-  cursor: pointer;
-  padding: 4px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-sm);
   transition: color 0.2s ease, background 0.2s ease;
 }
+
+.distance-status-optimal { --distance-color: var(--success); }
+.distance-status-too_close { --distance-color: var(--error); }
+.distance-status-too_far { --distance-color: var(--warning); }
+.distance-status-no_data,
+.distance-status-no_human { --distance-color: var(--text-tertiary); }
 
 .preview-action:hover {
   color: var(--primary);
