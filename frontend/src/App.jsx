@@ -23,12 +23,14 @@ const defaultBackendHost = () => {
 function AppContent() {
   const { message, modal } = AntApp.useApp();
   const [backendHost, setBackendHost] = useState(defaultBackendHost);
+  const [connectionVersion, setConnectionVersion] = useState(0);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
-  const collector = useCollectorSocket({ backendHost, message });
+  const collector = useCollectorSocket({ backendHost, message, connectionVersion });
 
   const reconnectBackend = useCallback((nextHost) => {
     localStorage.setItem('backendHost', nextHost);
     setBackendHost(nextHost);
+    setConnectionVersion((version) => version + 1);
     setDiagnosticOpen(false);
   }, []);
 

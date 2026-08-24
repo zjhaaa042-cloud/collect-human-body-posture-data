@@ -1,5 +1,6 @@
 numpy>=1.24.0
-opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+mediapipe==0.10.35
 pyorbbecsdk2==2.1.1
 # D435i firmware 5.15.1.55 is paired with librealsense 2.54.2.
 # This wheel is available for CPython 3.10/3.11 on Windows.

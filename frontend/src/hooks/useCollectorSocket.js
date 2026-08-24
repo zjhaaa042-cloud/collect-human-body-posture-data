@@ -20,7 +20,7 @@ const normalizeReviewPreview = (payload = {}, fallback = {}) => {
   };
 };
 
-export default function useCollectorSocket({ backendHost, message }) {
+export default function useCollectorSocket({ backendHost, message, connectionVersion = 0 }) {
   const socketRef = useRef(null);
   const reviewPreviewRequestRef = useRef(null);
   const activeSubjectIdRef = useRef('');
@@ -47,6 +47,7 @@ export default function useCollectorSocket({ backendHost, message }) {
   useEffect(() => {
     let active = true;
     let reconnectTimer;
+    let authTimer;
     let catalogTimer;
     let previewWatchdogTimer;
     let socket;
@@ -54,6 +55,15 @@ export default function useCollectorSocket({ backendHost, message }) {
     let previewExpectedAt = 0;
     let lastPreviewAt = 0;
     let lastPreviewRestartAt = 0;
+    let reconnectAttempt = 0;
+
+    const scheduleReconnect = () => {
+      if (!active) return;
+      window.clearTimeout(reconnectTimer);
+      const delay = Math.min(10000, 1000 * (2 ** Math.min(reconnectAttempt, 4)));
+      reconnectAttempt += 1;
+      reconnectTimer = window.setTimeout(connect, delay);
+    };
 
     const sendOn = (target, type, payload = {}) => {
       if (target?.readyState === WebSocket.OPEN) {
@@ -78,6 +88,7 @@ export default function useCollectorSocket({ backendHost, message }) {
     };
 
     const handleMessage = (event) => {
+      if (!active) return;
       let packet;
       try {
         packet = JSON.parse(event.data);
@@ -88,6 +99,8 @@ export default function useCollectorSocket({ backendHost, message }) {
       const payload = unwrapPayload(packet);
       switch (packet.type) {
         case 'auth_success':
+          reconnectAttempt = 0;
+          window.clearTimeout(authTimer);
           setConnected(true);
           setPreviewStatus('waiting');
           setProtocolLoading(true);
@@ -278,25 +291,42 @@ export default function useCollectorSocket({ backendHost, message }) {
         // Browser/fetch fallback below also covers an Electron IPC restart.
       }
       if (!token) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 4000);
         try {
           const response = await fetch(`http://${backendHost}/auth-token`, {
-            cache: 'no-store'
+            cache: 'no-store',
+            signal: controller.signal
           });
           if (response.ok) token = (await response.json()).token || '';
         } catch {
           // 连接关闭回调统一提供重试反馈。
+        } finally {
+          window.clearTimeout(timeout);
         }
       }
       if (!active || !token) {
         setConnected(false);
-        reconnectTimer = window.setTimeout(connect, 3000);
+        scheduleReconnect();
         return;
       }
-      socket = new WebSocket(`ws://${backendHost}`);
-      socketRef.current = socket;
-      socket.onopen = () => sendOn(socket, 'auth', { token });
-      socket.onmessage = handleMessage;
-      socket.onclose = () => {
+      const currentSocket = new WebSocket(`ws://${backendHost}`);
+      socket = currentSocket;
+      socketRef.current = currentSocket;
+      currentSocket.onopen = () => {
+        sendOn(currentSocket, 'auth', { token });
+        window.clearTimeout(authTimer);
+        authTimer = window.setTimeout(() => {
+          if (active && socketRef.current === currentSocket) {
+            currentSocket.close(4000, 'Authentication timeout');
+          }
+        }, 6000);
+      };
+      currentSocket.onmessage = handleMessage;
+      currentSocket.onclose = () => {
+        window.clearTimeout(authTimer);
+        if (!active || socketRef.current !== currentSocket) return;
+        socketRef.current = null;
         reviewPreviewRequestRef.current = null;
         setReviewPreviewLoading(false);
         setConnected(false);
@@ -310,9 +340,11 @@ export default function useCollectorSocket({ backendHost, message }) {
         setBusyAction('');
         setIsCameraConnecting(false);
         setIsCameraDisconnecting(false);
-        if (active) reconnectTimer = window.setTimeout(connect, 3000);
+        scheduleReconnect();
       };
-      socket.onerror = () => setConnected(false);
+      currentSocket.onerror = () => {
+        if (active && socketRef.current === currentSocket) setConnected(false);
+      };
     };
 
     setConnected(false);
@@ -348,12 +380,13 @@ export default function useCollectorSocket({ backendHost, message }) {
     return () => {
       active = false;
       window.clearTimeout(reconnectTimer);
+      window.clearTimeout(authTimer);
       window.clearTimeout(catalogTimer);
       window.clearInterval(previewWatchdogTimer);
       socket?.close();
       if (socketRef.current === socket) socketRef.current = null;
     };
-  }, [backendHost, message]);
+  }, [backendHost, connectionVersion, message]);
 
   const send = useCallback((type, payload = {}, action = '') => {
     if (socketRef.current?.readyState !== WebSocket.OPEN) {

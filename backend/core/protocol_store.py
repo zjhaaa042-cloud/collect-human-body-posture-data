@@ -1254,6 +1254,11 @@ class ProtocolStore:
                 camera_json = self._json_ready(camera_metadata, "camera_metadata")
                 if not isinstance(qc_json, dict) or not isinstance(camera_json, dict):
                     raise ProtocolValidationError("qc and camera_metadata must be mappings")
+                self._enforce_subject_camera_fingerprint(
+                    state,
+                    supplied_condition,
+                    camera_json,
+                )
                 self._validate_burst_consistency(normalized_frames, camera_json)
                 self._validate_required_modalities(
                     normalized_frames,
@@ -1881,9 +1886,10 @@ class ProtocolStore:
             "qc_policy_version": "qc-policy-v1.0",
             "warn_requires_manual_review": True,
             # Generic library users can opt out while the production capture
-            # profile enables these two authoritative-boundary checks.
+            # profile enables these authoritative-boundary checks.
             "strict_qc_contract": False,
             "require_anthropometry_equipment": False,
+            "lock_camera_fingerprint": False,
         }
         if capture_policy is not None:
             supplied_policy = self._json_ready(capture_policy, "capture_policy")
@@ -2618,6 +2624,158 @@ class ProtocolStore:
         if not isinstance(policy, Mapping):
             raise ProtocolStoreError("protocol snapshot has no capture_policy")
         return policy
+
+    @staticmethod
+    def _camera_serial_from_metadata(camera_metadata: Mapping[str, Any]) -> str:
+        device = camera_metadata.get("device")
+        device = device if isinstance(device, Mapping) else {}
+        for source in (device, camera_metadata):
+            for key in (
+                "serial_number",
+                "camera_serial",
+                "serial",
+                "uid",
+                "device_uid",
+                "id",
+            ):
+                value = source.get(key)
+                if value is not None and str(value).strip():
+                    return str(value).strip()
+        return ""
+
+    @staticmethod
+    def _stream_profile_fingerprint(
+        camera_metadata: Mapping[str, Any]
+    ) -> Dict[str, Dict[str, Any]]:
+        raw_profiles = camera_metadata.get("stream_profiles")
+        raw_observed = camera_metadata.get("observed_streams")
+        profiles = (
+            {str(key): value for key, value in raw_profiles.items()}
+            if isinstance(raw_profiles, Mapping)
+            else {}
+        )
+        observed = (
+            {str(key): value for key, value in raw_observed.items()}
+            if isinstance(raw_observed, Mapping)
+            else {}
+        )
+        names = sorted(set(profiles) | set(observed))
+        result: Dict[str, Dict[str, Any]] = {}
+        stable_keys = (
+            "width",
+            "height",
+            "fps",
+            "format",
+            "dtype",
+            "source",
+            "stream_index",
+        )
+        for name in names:
+            profile = profiles.get(name)
+            profile = profile if isinstance(profile, Mapping) else {}
+            snapshot = {
+                key: profile[key]
+                for key in stable_keys
+                if profile.get(key) is not None
+            }
+            observation = observed.get(name)
+            observation = observation if isinstance(observation, Mapping) else {}
+            shape = observation.get("shape")
+            if isinstance(shape, Sequence) and not isinstance(shape, (str, bytes)):
+                snapshot["observed_shape"] = list(shape)
+            if observation.get("dtype") is not None:
+                snapshot["observed_dtype"] = observation.get("dtype")
+            if snapshot:
+                result[name] = snapshot
+        return result
+
+    def _camera_fingerprint(
+        self,
+        condition: Mapping[str, Any],
+        camera_metadata: Mapping[str, Any],
+    ) -> Tuple[Dict[str, Any], str]:
+        serial = self._camera_serial_from_metadata(camera_metadata)
+        profiles = self._stream_profile_fingerprint(camera_metadata)
+        calibration_sha256 = str(
+            camera_metadata.get("calibration_sha256") or ""
+        ).strip().lower()
+        try:
+            depth_scale = float(camera_metadata.get("depth_scale_mm_per_unit"))
+        except (TypeError, ValueError):
+            depth_scale = 0.0
+        missing = []
+        if not serial:
+            missing.append("camera serial/UID")
+        if not profiles:
+            missing.append("stream profiles")
+        if not re.fullmatch(r"[0-9a-f]{64}", calibration_sha256):
+            missing.append("calibration_sha256")
+        if not math.isfinite(depth_scale) or depth_scale <= 0:
+            missing.append("depth_scale_mm_per_unit")
+        if missing:
+            raise ProtocolValidationError(
+                "camera fingerprint is incomplete: " + ", ".join(missing)
+            )
+        fingerprint = {
+            "schema_version": "1.0",
+            "camera_code": str(condition["camera_code"]),
+            "camera_serial": serial,
+            "stream_profiles": profiles,
+            "calibration_sha256": calibration_sha256,
+            "depth_scale_mm_per_unit": depth_scale,
+        }
+        return fingerprint, self._canonical_sha256(fingerprint)
+
+    def _enforce_subject_camera_fingerprint(
+        self,
+        state: Mapping[str, Any],
+        condition: Mapping[str, Any],
+        camera_metadata: MutableMapping[str, Any],
+    ) -> None:
+        policy = self._capture_policy_from_state(state)
+        if not bool(policy.get("lock_camera_fingerprint", False)):
+            return
+        fingerprint, fingerprint_sha256 = self._camera_fingerprint(
+            condition,
+            camera_metadata,
+        )
+        camera_code = fingerprint["camera_code"]
+        for attempt in state.get("attempts", {}).values():
+            if attempt.get("status") != "COMMITTED":
+                continue
+            prior_condition = attempt.get("condition")
+            if (
+                not isinstance(prior_condition, Mapping)
+                or str(prior_condition.get("camera_code")) != camera_code
+            ):
+                continue
+            prior_metadata = attempt.get("camera_metadata")
+            if not isinstance(prior_metadata, Mapping):
+                raise ProtocolValidationError(
+                    f"existing {camera_code} attempt has no camera metadata"
+                )
+            prior_fingerprint = prior_metadata.get("subject_camera_fingerprint")
+            if isinstance(prior_fingerprint, Mapping):
+                prior_fingerprint = dict(prior_fingerprint)
+                prior_sha256 = self._canonical_sha256(prior_fingerprint)
+            else:
+                prior_fingerprint, prior_sha256 = self._camera_fingerprint(
+                    prior_condition,
+                    prior_metadata,
+                )
+            if prior_sha256 != fingerprint_sha256:
+                changed = sorted(
+                    key
+                    for key in fingerprint
+                    if prior_fingerprint.get(key) != fingerprint.get(key)
+                )
+                raise ProtocolValidationError(
+                    f"subject camera fingerprint changed for {camera_code}: "
+                    + ", ".join(changed)
+                )
+            break
+        camera_metadata["subject_camera_fingerprint"] = fingerprint
+        camera_metadata["subject_camera_fingerprint_sha256"] = fingerprint_sha256
 
     def _required_modalities_from_state(
         self, state: Mapping[str, Any]

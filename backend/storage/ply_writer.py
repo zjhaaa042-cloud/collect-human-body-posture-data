@@ -84,30 +84,70 @@ class PLYWriter:
     @staticmethod
     def load(filepath: str):
         try:
-            with open(filepath, 'r') as f:
-                header_lines = []
+            with open(filepath, 'rb') as f:
+                file_format = None
                 vertex_count = 0
-                has_color = False
+                current_element = None
+                vertex_properties = []
 
                 while True:
-                    line = f.readline().strip()
-                    header_lines.append(line)
-                    if line.startswith("element vertex"):
-                        vertex_count = int(line.split()[-1])
-                    if "property uchar red" in line:
-                        has_color = True
+                    raw_line = f.readline()
+                    if not raw_line:
+                        raise ValueError("PLY header is incomplete")
+                    line = raw_line.decode('ascii').strip()
+                    parts = line.split()
+                    if parts[:1] == ["format"]:
+                        file_format = parts[1]
+                    elif parts[:1] == ["element"]:
+                        current_element = parts[1]
+                        if current_element == "vertex":
+                            vertex_count = int(parts[2])
+                    elif parts[:1] == ["property"] and current_element == "vertex":
+                        if len(parts) != 3 or parts[1] == "list":
+                            raise ValueError("Unsupported vertex property declaration")
+                        vertex_properties.append((parts[2], parts[1]))
                     if line == "end_header":
                         break
 
-                points = np.zeros((vertex_count, 3), dtype=np.float32)
-                colors = np.zeros((vertex_count, 3), dtype=np.uint8) if has_color else None
+                names = [name for name, _ in vertex_properties]
+                for required in ("x", "y", "z"):
+                    if required not in names:
+                        raise ValueError(f"PLY is missing vertex property: {required}")
 
-                for i in range(vertex_count):
-                    values = f.readline().strip().split()
-                    points[i] = [float(v) for v in values[:3]]
-                    if has_color:
-                        colors[i] = [int(v) for v in values[3:6]]
+                if file_format == "ascii":
+                    rows = []
+                    for _ in range(vertex_count):
+                        raw_row = f.readline()
+                        if not raw_row:
+                            raise ValueError("PLY vertex data is incomplete")
+                        rows.append(raw_row.decode('ascii').split())
+                    values = np.asarray(rows, dtype=np.float64)
+                    points = values[:, [names.index("x"), names.index("y"), names.index("z")]].astype(np.float32)
+                    colors = None
+                    if all(name in names for name in ("red", "green", "blue")):
+                        colors = values[:, [names.index("red"), names.index("green"), names.index("blue")]].astype(np.uint8)
+                    return points, colors
 
+                if file_format != "binary_little_endian":
+                    raise ValueError(f"Unsupported PLY format: {file_format}")
+
+                numpy_types = {
+                    "char": "i1", "int8": "i1", "uchar": "u1", "uint8": "u1",
+                    "short": "<i2", "int16": "<i2", "ushort": "<u2", "uint16": "<u2",
+                    "int": "<i4", "int32": "<i4", "uint": "<u4", "uint32": "<u4",
+                    "float": "<f4", "float32": "<f4", "double": "<f8", "float64": "<f8",
+                }
+                try:
+                    vertex_dtype = np.dtype([(name, numpy_types[data_type]) for name, data_type in vertex_properties])
+                except KeyError as exc:
+                    raise ValueError(f"Unsupported PLY property type: {exc.args[0]}") from exc
+                vertices = np.fromfile(f, dtype=vertex_dtype, count=vertex_count)
+                if len(vertices) != vertex_count:
+                    raise ValueError("PLY vertex data is incomplete")
+                points = np.column_stack((vertices["x"], vertices["y"], vertices["z"])).astype(np.float32)
+                colors = None
+                if all(name in names for name in ("red", "green", "blue")):
+                    colors = np.column_stack((vertices["red"], vertices["green"], vertices["blue"])).astype(np.uint8)
                 return points, colors
         except Exception as e:
             logger.error(f"Failed to load PLY file: {e}")

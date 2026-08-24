@@ -10,12 +10,15 @@ import './PreviewPanel.css';
 
 const { Text } = Typography;
 
-const statusTagColors = {
-  optimal: 'success',
-  too_close: 'error',
-  too_far: 'warning',
-  no_data: 'default',
-  no_human: 'default'
+const statusColors = {
+  optimal: '#1F9D8A',
+  too_close: '#C84A4A',
+  too_far: '#C58A12',
+  no_data: '#8796A1',
+  no_human: '#8796A1',
+  body_incomplete: '#C58A12',
+  quality_low: '#C58A12',
+  unstable: '#2F6F9F'
 };
 
 const statusLabels = {
@@ -23,13 +26,17 @@ const statusLabels = {
   too_close: '太近',
   too_far: '太远',
   no_data: '无数据',
-  no_human: '未识别到人体'
+  no_human: '未识别到人体',
+  body_incomplete: '全身未完整入镜',
+  quality_low: '数据质量不足',
+  unstable: '请保持姿态稳定'
 };
 
 const DistanceIndicator = ({ distanceInfo }) => {
   if (!distanceInfo) return null;
 
   const status = distanceInfo.status || 'no_data';
+  const color = statusColors[status] || '#8796A1';
   const label = statusLabels[distanceInfo.status] || '未知状态';
   const distanceM = distanceInfo.distance_mm ? (distanceInfo.distance_mm / 1000).toFixed(2) : '--';
 
@@ -42,8 +49,10 @@ const DistanceIndicator = ({ distanceInfo }) => {
           <span className="distance-unit">米</span>
         </div>
       </div>
-      <Tag color={statusTagColors[status] || 'default'} className="distance-tag">
-        {label}
+      <Tag color={color} className="distance-tag">
+        {distanceInfo.capture_quality?.score != null
+          ? `${label} · ${Math.round(distanceInfo.capture_quality.score)}分`
+          : label}
       </Tag>
     </div>
   );

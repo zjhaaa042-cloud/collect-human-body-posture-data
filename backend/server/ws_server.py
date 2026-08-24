@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -43,7 +44,7 @@ from ..voice.recognizer import VoiceRecognizer
 from ..voice.synthesizer import VoiceSynthesizer
 from ..voice.command_parser import VoiceCommandParser, VoiceCommand
 from ..utils.frame_processor import FrameProcessor
-from ..config.settings import get_settings
+from ..config.settings import get_settings, save_settings
 
 _ERROR_MESSAGES = {
     json.JSONDecodeError: "请求格式无效",
@@ -71,8 +72,10 @@ _MAX_AUTO_STABLE_FRAMES = 120
 _MAX_AUTO_DISTANCE_DELTA_MM = 1000.0
 _MAX_AUTO_CAPTURE_COUNT = 100
 _MAX_AUTO_CAPTURE_INTERVAL_SEC = 60.0
+_LEGACY_WRITES_ENABLED = False
 
 _PROTOCOL_VERSION = "RealAnthro-RGBD-v1.0"
+_PROTOCOL_CAPTURE_POLICY_VERSION = "realanthro-capture-v1.1"
 _DEFAULT_PROTOCOL_PROFILE = "full31_no_lux"
 _PROTOCOL_PROFILES = {
     "primary3": primary3,
@@ -206,7 +209,7 @@ class WebSocketServer:
         self.auth_token = secrets.token_urlsafe(32)
 
         self.settings = get_settings()
-        self.camera = CameraManager()
+        self.camera = CameraManager(self.settings.camera.orientation)
         self.camera_registry = CameraAdapterRegistry(
             orbbec=OrbbecCameraAdapter(self.camera),
             realsense=RealSenseCameraAdapter(),
@@ -215,7 +218,13 @@ class WebSocketServer:
         self.depth_analyzer = DepthAnalyzer(
             target_distance_mm=self.settings.distance.target_distance_mm,
             tolerance_mm=self.settings.distance.tolerance_mm,
-            roi_ratio=self.settings.distance.roi_ratio
+            roi_ratio=self.settings.distance.roi_ratio,
+            min_distance_mm=self.settings.distance.min_distance_mm,
+            max_distance_mm=self.settings.distance.max_distance_mm,
+            min_edge_margin=self.settings.distance.min_edge_margin,
+            min_body_depth_coverage=self.settings.distance.min_body_depth_coverage,
+            min_quality_score=self.settings.distance.min_quality_score,
+            pose_model_path=self.settings.distance.pose_model_path,
         )
         self.data_collector = DataCollector(self.settings.storage.output_dir)
         protocol_root = (
@@ -242,8 +251,9 @@ class WebSocketServer:
                 f"{recovery_report}"
             )
         self.active_protocol_subject_id = None
+        preview_size = self._preview_size_for_orientation(self.camera.orientation)
         self.frame_processor = FrameProcessor(
-            preview_size=(self.settings.gui.preview_width, self.settings.gui.preview_height),
+            preview_size=preview_size,
             jpeg_quality=self.settings.gui.jpeg_quality
         )
 
@@ -260,6 +270,9 @@ class WebSocketServer:
         self.camera_lock = asyncio.Lock()
         self.camera_operation_lock = asyncio.Lock()
         self.preview_task = None
+        self._last_color_preview = ""
+        self._last_depth_preview = ""
+        self._preview_miss_count = 0
         self.auto_capture_enabled = False
         self.auto_capture_options = {}
         self.auto_required_frames = 10
@@ -272,8 +285,25 @@ class WebSocketServer:
         self.auto_message = "自动采集未开启"
         self.auto_task = None
         self.auto_last_voice_key = None
+        self._last_voice_command = None
+        self._last_voice_command_at = 0.0
+        self.shutdown_when_idle = (
+            os.environ.get("BODY_COLLECTOR_SHUTDOWN_WHEN_IDLE") == "1"
+        )
+        self._had_authenticated_client = False
+        self._idle_shutdown_task = None
 
         self._setup_voice()
+
+    def _preview_size_for_orientation(self, orientation: str):
+        raw_w = self.settings.camera.width
+        raw_h = self.settings.camera.height
+        if orientation in {"portrait_cw", "portrait_ccw"}:
+            output_w, output_h = raw_h, raw_w
+            target_h = self.settings.gui.preview_width
+            return max(1, round(target_h * output_w / output_h)), target_h
+        target_w = self.settings.gui.preview_width
+        return target_w, max(1, round(target_w * raw_h / raw_w))
 
     def _setup_voice(self):
         if self.settings.voice.enabled:
@@ -284,11 +314,16 @@ class WebSocketServer:
                     rate=self.settings.voice.tts_rate,
                     volume=self.settings.voice.tts_volume
                 )
-                self.voice_recognizer.start_listening(
+                recognition_started = self.voice_recognizer.start_listening(
                     self._on_voice_command,
                     self._on_voice_activity
                 )
-                logger.info("Voice system initialized")
+                if not recognition_started:
+                    self.voice_recognizer = None
+                    logger.info(
+                        "Voice commands are disabled until a complete Vosk model is installed"
+                    )
+                logger.info("Voice output initialized")
             except Exception as e:
                 logger.error(f"Failed to setup voice: {e}")
 
@@ -304,37 +339,51 @@ class WebSocketServer:
                 pass
 
     def _on_voice_command(self, text: str):
+        if self.voice_synthesizer and self.voice_synthesizer.is_speaking:
+            return
         command = self.voice_parser.execute_command(text)
+        if command == VoiceCommand.UNKNOWN:
+            return
+        now = time.monotonic()
+        if (
+            command == self._last_voice_command
+            and now - self._last_voice_command_at < 1.5
+        ):
+            return
+        self._last_voice_command = command
+        self._last_voice_command_at = now
         if command == VoiceCommand.START_CAPTURE:
-            if self.active_protocol_subject_id and not self.voice_protocol_armed:
+            if not self.active_protocol_subject_id:
+                logger.info("Ignored voice capture: legacy capture is disabled")
+                return
+            if not self.voice_protocol_armed:
                 logger.info("Ignored protocol voice capture: voice control is not armed")
                 return
             if self.loop and not self.loop.is_closed():
                 try:
-                    if self.active_protocol_subject_id:
-                        state = self._protocol_subject_state(self.active_protocol_subject_id)
-                        condition_id = state.get("next_condition_id")
-                        coroutine = self._capture_protocol_condition(
-                            None,
-                            {"condition_id": condition_id},
-                        )
-                    else:
-                        coroutine = self._handle_capture()
+                    state = self._protocol_subject_state(self.active_protocol_subject_id)
+                    condition_id = state.get("next_condition_id")
+                    coroutine = self._capture_protocol_condition(
+                        None,
+                        {"condition_id": condition_id},
+                    )
                     asyncio.run_coroutine_threadsafe(coroutine, self.loop)
                 except Exception:
                     pass
         elif command == VoiceCommand.STOP_CAPTURE:
-            self.is_capturing = False
+            logger.info(
+                "Ignored voice stop: a RealAnthro condition transaction cannot be cancelled"
+            )
         elif command == VoiceCommand.FINISH:
-            if self.active_protocol_subject_id and not self.voice_protocol_armed:
+            if not self.active_protocol_subject_id:
+                logger.info("Ignored voice finish: legacy sessions are read-only")
+                return
+            if not self.voice_protocol_armed:
                 logger.info("Ignored protocol voice finish: voice control is not armed")
                 return
             if self.loop and not self.loop.is_closed():
                 try:
-                    if self.active_protocol_subject_id:
-                        coroutine = self._complete_protocol_subject(None, {})
-                    else:
-                        coroutine = self._handle_finish()
+                    coroutine = self._complete_protocol_subject(None, {})
                     asyncio.run_coroutine_threadsafe(coroutine, self.loop)
                 except Exception:
                     pass
@@ -352,6 +401,18 @@ class WebSocketServer:
             min_color_brightness=self.settings.storage.min_color_brightness,
             max_color_brightness=self.settings.storage.max_color_brightness
         )
+
+    @staticmethod
+    def _distance_payload(info) -> dict:
+        return {
+            "distance_mm": info.distance_mm,
+            "status": info.status.value,
+            "message": info.message,
+            "confidence": info.confidence,
+            "full_body_visible": info.full_body_visible,
+            "visibility_score": info.visibility_score,
+            "capture_quality": info.to_capture_quality(),
+        }
 
     @staticmethod
     def _jsonable(value: Any) -> Any:
@@ -497,11 +558,31 @@ class WebSocketServer:
             self, "_protocol_reconciliation_required_subjects", set()
         )
 
-    def _assert_protocol_subject_writable(self, subject_id: str) -> None:
+    def _assert_protocol_subject_writable(
+        self,
+        subject_id: str,
+        *,
+        require_camera_fingerprint: bool = False,
+    ) -> None:
         if self._protocol_reconciliation_required(subject_id):
             raise ProtocolStoreError(
                 "该受试者存在已落盘但待恢复的账本事务；请停止操作并重启采集服务"
             )
+        if require_camera_fingerprint:
+            state = self.protocol_store.get_subject_state(subject_id)
+            snapshot = state.get("protocol_snapshot")
+            policy = (
+                snapshot.get("capture_policy")
+                if isinstance(snapshot, Mapping)
+                else None
+            )
+            if not isinstance(policy, Mapping) or not bool(
+                policy.get("lock_camera_fingerprint", False)
+            ):
+                raise ProtocolStoreError(
+                    "该受试者使用旧版采集策略，缺少跨条件相机指纹门禁；"
+                    "禁止继续新增图像，请新建 v1.1 协议受试者"
+                )
 
     def _protocol_catalog(self) -> dict:
         profiles = []
@@ -763,9 +844,26 @@ class WebSocketServer:
         if not hasattr(self, "depth_analyzer"):
             return condition
         target = float(condition["distance_mm"])
-        if self.depth_analyzer.target != target:
+        tolerance = max(150.0, target * 0.10)
+        min_distance = max(300.0, target - tolerance)
+        max_distance = target + tolerance
+        configure_window = getattr(
+            self.depth_analyzer,
+            "configure_distance_window",
+            None,
+        )
+        if callable(configure_window):
+            configure_window(target, tolerance, min_distance, max_distance)
+        elif (
+            self.depth_analyzer.target != target
+            or self.depth_analyzer.tolerance != tolerance
+            or getattr(self.depth_analyzer, "min_distance", None) != min_distance
+            or getattr(self.depth_analyzer, "max_distance", None) != max_distance
+        ):
             self.depth_analyzer.target = target
-            self.depth_analyzer.tolerance = max(150.0, target * 0.10)
+            self.depth_analyzer.tolerance = tolerance
+            self.depth_analyzer.min_distance = min_distance
+            self.depth_analyzer.max_distance = max_distance
             self.depth_analyzer.reset()
         return condition
 
@@ -774,10 +872,7 @@ class WebSocketServer:
         if subject_id == self.active_protocol_subject_id:
             self._apply_protocol_distance_target(state)
         message = {"type": "protocol_subject_state", "data": state}
-        if websocket is not None:
-            await websocket.send(json.dumps(message, ensure_ascii=False))
-        else:
-            await self._broadcast(message)
+        await self._emit_protocol_message(websocket, message)
         return state
 
     async def _set_protocol_preview_condition(self, websocket, data: dict):
@@ -813,7 +908,13 @@ class WebSocketServer:
         if websocket is None:
             await self._broadcast(message)
         else:
-            await websocket.send(json.dumps(message, ensure_ascii=False))
+            try:
+                await asyncio.wait_for(
+                    websocket.send(json.dumps(message, ensure_ascii=False)),
+                    timeout=0.5,
+                )
+            except Exception as exc:
+                logger.warning(f"Protocol client notification failed: {exc}")
 
     async def _send_protocol_subjects(self, websocket):
         subjects = []
@@ -852,10 +953,10 @@ class WebSocketServer:
                 "completed_at": state["completed_at"],
                 "progress": state["progress"],
             })
-        await websocket.send(json.dumps({
+        await self._emit_protocol_message(websocket, {
             "type": "protocol_subject_list",
             "data": {"subjects": subjects},
-        }, ensure_ascii=False))
+        })
 
     def _protocol_capture_policy(self, conditions: tuple[Condition, ...]) -> dict:
         """Freeze every capture/QC rule needed to validate future attempts."""
@@ -885,6 +986,7 @@ class WebSocketServer:
             "required_qc_check_counts": dict(_REQUIRED_QC_CHECK_COUNTS),
             "warn_requires_manual_review": True,
             "strict_qc_contract": True,
+            "lock_camera_fingerprint": True,
             "view_angle_direction": "clockwise_from_overhead",
         }
 
@@ -915,7 +1017,7 @@ class WebSocketServer:
             profile_id=profile_id,
             subject_metadata=metadata,
             expected_conditions=[self._condition_payload(item) for item in conditions],
-            capture_policy_version="realanthro-capture-v1.0",
+            capture_policy_version=_PROTOCOL_CAPTURE_POLICY_VERSION,
             capture_policy=self._protocol_capture_policy(conditions),
         )
         self.active_protocol_subject_id = subject_id
@@ -1808,7 +1910,10 @@ class WebSocketServer:
         subject_id = str(data.get("subject_id") or self.active_protocol_subject_id or "")
         if not subject_id:
             raise ValueError("请先创建或选择受试者")
-        self._assert_protocol_subject_writable(subject_id)
+        self._assert_protocol_subject_writable(
+            subject_id,
+            require_camera_fingerprint=True,
+        )
         state = self.protocol_store.get_subject_state(subject_id)
         if state.get("status") == "COMPLETE":
             raise ValueError("该受试者已完成，不能继续追加采集")
@@ -2572,6 +2677,12 @@ class WebSocketServer:
         self.auto_message = message
 
     async def _start_auto_capture(self, data: dict = None):
+        if not _LEGACY_WRITES_ENABLED:
+            self.auto_capture_enabled = False
+            self.auto_state = "disabled"
+            self.auto_message = "旧版自动连拍已停用"
+            await self._broadcast_auto_status()
+            return False
         data = data or {}
         self.auto_capture_options = data.get("options") or {}
         self.auto_required_frames = min(
@@ -2677,6 +2788,15 @@ class WebSocketServer:
             await self._broadcast_auto_status()
 
     async def _handle_capture(self, options: dict = None):
+        if not _LEGACY_WRITES_ENABLED:
+            await self._broadcast({
+                "type": "capture_result",
+                "data": {
+                    "success": False,
+                    "error": "旧版采集写入已停用，请使用 RealAnthro 条件采集",
+                },
+            })
+            return None
         if getattr(self, "is_shutting_down", False):
             await self._broadcast({
                 "type": "capture_result",
@@ -2760,6 +2880,12 @@ class WebSocketServer:
                 self.is_capturing = False
 
     async def _handle_finish(self):
+        if not _LEGACY_WRITES_ENABLED:
+            await self._broadcast({
+                "type": "error",
+                "message": "旧版会话写入已停用",
+            })
+            return False
         if self.voice_synthesizer:
             count = self.data_collector.get_capture_count()
             self.voice_synthesizer.speak(f"采集完成，共采集{count}组数据。", blocking=False)
@@ -2789,6 +2915,11 @@ class WebSocketServer:
         status = dict(adapter.get_status(devices=active_devices))
         status["devices"] = devices
         status["active_backend"] = adapter.backend
+        status["orientation"] = (
+            getattr(getattr(self, "camera", None), "orientation", "landscape")
+            if adapter.backend == "orbbec"
+            else "landscape"
+        )
         status["action"] = action
         return status
 
@@ -2892,6 +3023,11 @@ class WebSocketServer:
                             params_file=self.settings.camera.params_file,
                         )
                         self.active_camera_adapter = adapter
+                        if ok:
+                            self.depth_analyzer.reset()
+                            self._last_color_preview = ""
+                            self._last_depth_preview = ""
+                            self._preview_miss_count = 0
                     status = await asyncio.to_thread(
                         self._camera_status_snapshot,
                         "connect",
@@ -2939,6 +3075,9 @@ class WebSocketServer:
                     operation_error = ""
                     await asyncio.to_thread(self.active_camera_adapter.disconnect)
                     self.depth_analyzer.reset()
+                    self._last_color_preview = ""
+                    self._last_depth_preview = ""
+                    self._preview_miss_count = 0
                     status = await asyncio.to_thread(
                         self._camera_status_snapshot,
                         "disconnect",
@@ -3047,6 +3186,10 @@ class WebSocketServer:
             return
 
         self.clients.add(websocket)
+        self._had_authenticated_client = True
+        if self._idle_shutdown_task and not self._idle_shutdown_task.done():
+            self._idle_shutdown_task.cancel()
+        self._idle_shutdown_task = None
         logger.info(f"Client connected: {remote}")
         try:
             await websocket.send(json.dumps({"type": "auth_success"}, ensure_ascii=False))
@@ -3080,6 +3223,47 @@ class WebSocketServer:
                     await self._stop_preview()
                 except Exception:
                     pass
+                if (
+                    self.shutdown_when_idle
+                    and self._had_authenticated_client
+                    and not self.is_shutting_down
+                ):
+                    if (
+                        self._idle_shutdown_task is None
+                        or self._idle_shutdown_task.done()
+                    ):
+                        self._idle_shutdown_task = asyncio.create_task(
+                            self._shutdown_after_idle()
+                        )
+
+    async def _shutdown_after_idle(self, delay: float = 5.0):
+        """Stop browser-launched services only after active transactions finish."""
+        try:
+            await asyncio.sleep(delay)
+            if (
+                self.clients
+                or self.is_shutting_down
+                or not getattr(self, "_had_authenticated_client", False)
+            ):
+                return
+
+            deadline = time.monotonic() + 120.0
+            while self.capture_lock.locked() or self.camera_operation_lock.locked():
+                if self.clients or self.is_shutting_down:
+                    return
+                if time.monotonic() >= deadline:
+                    logger.warning(
+                        "Idle shutdown skipped because a capture or camera operation is still active"
+                    )
+                    return
+                await asyncio.sleep(0.25)
+
+            logger.info("No frontend client reconnected; stopping application services")
+            self.is_shutting_down = True
+            if getattr(self, "_ws_server", None):
+                self._ws_server.close()
+        except asyncio.CancelledError:
+            pass
 
     async def _process_message(self, websocket, data: dict):
         msg_type = data.get("type")
@@ -3158,33 +3342,50 @@ class WebSocketServer:
         elif msg_type == "stop_preview":
             await self._stop_preview()
         elif msg_type == "capture_single":
-            if self.active_protocol_subject_id:
-                await self._send_error(websocket, "协议模式下请使用当前条件的五帧采集")
-                return
-            await self._handle_capture(data.get("options"))
+            await self._send_error(
+                websocket,
+                "旧版单帧采集已停用，请使用 RealAnthro 当前条件的五帧采集",
+            )
+            return
         elif msg_type == "connect_camera":
             await self._handle_connect_camera(websocket, data)
         elif msg_type == "disconnect_camera":
             await self._handle_disconnect_camera(websocket)
         elif msg_type == "get_camera_status":
             await self._send_camera_status(websocket, action="status")
-        elif msg_type == "start_auto_capture":
-            if self.active_protocol_subject_id:
-                await self._send_error(websocket, "协议模式不允许旧版自动连拍绕过条件矩阵")
+        elif msg_type == "set_camera_orientation":
+            if self.active_camera_adapter.backend != "orbbec":
+                await self._send_error(websocket, "当前方向设置仅用于 Gemini 预览")
                 return
-            await self._start_auto_capture(data)
+            if self.capture_lock.locked():
+                await self._send_error(websocket, "正在采集中，不能修改相机方向")
+                return
+            orientation = self.camera.set_orientation(data.get("orientation"))
+            self.frame_processor.preview_size = self._preview_size_for_orientation(
+                orientation
+            )
+            self.settings.camera.orientation = orientation
+            config_path = Path(__file__).resolve().parents[2] / "config.json"
+            save_settings(self.settings, str(config_path))
+            self.depth_analyzer.reset()
+            self._last_color_preview = ""
+            self._last_depth_preview = ""
+            self._preview_miss_count = 0
+            await self._send_camera_status(websocket, action="orientation")
+        elif msg_type == "start_auto_capture":
+            await self._send_error(
+                websocket,
+                "旧版自动连拍已停用，请按 RealAnthro 条件矩阵逐项采集",
+            )
+            return
         elif msg_type == "stop_auto_capture":
             await self._stop_auto_capture()
         elif msg_type == "create_session":
-            session_name = _validate_field(data.get("session_name", ""), "session_name", _SAFE_PATTERN)
-            session_id = self.data_collector.create_session(session_name)
-            try:
-                await websocket.send(json.dumps({
-                    "type": "session_created",
-                    "data": {"session_id": session_id}
-                }, ensure_ascii=False))
-            except Exception:
-                pass
+            await self._send_error(
+                websocket,
+                "旧版会话创建已停用，请新建 RealAnthro 协议受试者",
+            )
+            return
         elif msg_type == "get_distance":
             if self.capture_lock.locked():
                 await self._send_error(websocket, "协议 burst 采集中，暂不读取额外距离帧")
@@ -3194,18 +3395,16 @@ class WebSocketServer:
                     self.active_camera_adapter.get_frames, 1000
                 )
             if depth_frame and depth_frame.depth is not None:
-                distance_info = self.depth_analyzer.analyze_distance(
+                distance_info = await asyncio.to_thread(
+                    self.depth_analyzer.analyze_distance,
                     depth_frame.depth,
-                    depth_scale=depth_frame.depth_scale,
+                    depth_frame.color,
+                    depth_frame.depth_scale,
                 )
                 try:
                     await websocket.send(json.dumps({
                         "type": "distance_update",
-                        "data": {
-                            "distance_mm": distance_info.distance_mm,
-                            "status": distance_info.status.value,
-                            "message": distance_info.message
-                        }
+                        "data": self._distance_payload(distance_info)
                     }))
                 except Exception:
                     pass
@@ -3217,7 +3416,11 @@ class WebSocketServer:
             if self.active_protocol_subject_id:
                 await self._complete_protocol_subject(websocket, data)
             else:
-                await self._handle_finish()
+                await self._send_error(
+                    websocket,
+                    "旧版会话完成写入已停用，请选择 RealAnthro 协议受试者",
+                )
+                return
         elif msg_type == "get_sessions":
             sessions = self.data_collector.get_session_list()
             try:
@@ -3246,6 +3449,12 @@ class WebSocketServer:
                 }, ensure_ascii=False))
             except Exception:
                 pass
+        elif msg_type == "review_capture":
+            await self._send_error(
+                websocket,
+                "旧版样本复核写入已停用；RealAnthro 复核请使用协议复核入口",
+            )
+            return
         elif msg_type == "select_session":
             session_name = data.get("session_name")
             if session_name and self.data_collector.select_session(session_name):
@@ -3303,8 +3512,13 @@ class WebSocketServer:
     async def _preview_loop(self):
         current_task = asyncio.current_task()
         consecutive_errors = 0
+        if not hasattr(self, "_last_color_preview"):
+            self._last_color_preview = ""
+        if not hasattr(self, "_last_depth_preview"):
+            self._last_depth_preview = ""
+        if not hasattr(self, "_preview_miss_count"):
+            self._preview_miss_count = 0
         try:
-            import time
             while self.is_previewing and self.clients:
                 start_time = time.time()
                 if self.is_capturing:
@@ -3318,27 +3532,56 @@ class WebSocketServer:
                         )
                     color_preview = ""
                     depth_preview = ""
+                    color_frame = frames.color if frames else None
+                    depth_frame = frames.depth if frames else None
 
-                    if frames and frames.color is not None:
-                        color_preview = self.frame_processor.encode_preview_fast(
-                            frames.color, is_rgb=True
+                    # Installation orientation affects only the operator preview.
+                    # Protocol artifacts remain in the sensor-native orientation so
+                    # RGB, raw/aligned depth, IR and calibration stay consistent.
+                    if (
+                        frames
+                        and getattr(self.active_camera_adapter, "backend", "") == "orbbec"
+                        and getattr(
+                            getattr(self, "camera", None),
+                            "orientation",
+                            "landscape",
+                        ) != "landscape"
+                    ):
+                        color_frame = self.camera._rotate_array(color_frame)
+                        depth_frame = self.camera._rotate_array(depth_frame)
+
+                    if color_frame is not None:
+                        color_preview = await asyncio.to_thread(
+                            self.frame_processor.encode_preview_fast,
+                            color_frame,
+                            True,
                         )
+                        if color_preview:
+                            self._last_color_preview = color_preview
 
                     if frames and frames.depth is not None:
-                        depth_preview = self.frame_processor.encode_depth_preview_fast(
-                            frames.depth, frames.depth_scale
+                        depth_preview, distance_info = await asyncio.gather(
+                            asyncio.to_thread(
+                                self.frame_processor.encode_depth_preview_fast,
+                                depth_frame,
+                                frames.depth_scale,
+                            ),
+                            asyncio.to_thread(
+                                self.depth_analyzer.analyze_distance,
+                                frames.depth,
+                                frames.color,
+                                frames.depth_scale,
+                            ),
                         )
-                        distance_info = self.depth_analyzer.analyze_distance(
-                            frames.depth, depth_scale=frames.depth_scale
-                        )
-                        distance_data = {
-                            "distance_mm": distance_info.distance_mm,
-                            "status": distance_info.status.value,
-                            "message": distance_info.message,
-                            "confidence": distance_info.confidence,
-                        }
+                        distance_data = self._distance_payload(distance_info)
+                        if depth_preview:
+                            self._last_depth_preview = depth_preview
+                            self._preview_miss_count = 0
+                        else:
+                            self._preview_miss_count += 1
                         await self._update_auto_capture(distance_info)
                     else:
+                        self._preview_miss_count += 1
                         await self._update_auto_capture(None)
                         distance_data = {
                             "distance_mm": 0,
@@ -3349,6 +3592,10 @@ class WebSocketServer:
                             or "摄像头未连接",
                             "confidence": 0,
                         }
+
+                    if self._preview_miss_count <= 5:
+                        color_preview = color_preview or self._last_color_preview
+                        depth_preview = depth_preview or self._last_depth_preview
 
                     await self._broadcast({
                         "type": "preview_frame",
@@ -3371,8 +3618,10 @@ class WebSocketServer:
                     await self._broadcast({
                         "type": "preview_frame",
                         "data": {
-                            "color": "",
-                            "depth": "",
+                            "color": self._last_color_preview
+                            if consecutive_errors <= 5 else "",
+                            "depth": self._last_depth_preview
+                            if consecutive_errors <= 5 else "",
                             "distance": {
                                 "distance_mm": 0,
                                 "status": DistanceStatus.NO_DATA.value,
@@ -3406,14 +3655,22 @@ class WebSocketServer:
             return
         try:
             message_str = json.dumps(message, ensure_ascii=False)
-            closed = set()
-            for client in list(self.clients):
+            clients = list(self.clients)
+
+            async def send_one(client):
                 try:
-                    await client.send(message_str)
+                    await asyncio.wait_for(client.send(message_str), timeout=0.5)
+                    return None
                 except Exception:
-                    closed.add(client)
-            for client in closed:
+                    return client
+
+            closed = await asyncio.gather(*(send_one(client) for client in clients))
+            for client in filter(None, closed):
                 self.clients.discard(client)
+                try:
+                    await client.close(code=1011, reason="client too slow")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -3421,24 +3678,34 @@ class WebSocketServer:
         try:
             self.loop = asyncio.get_event_loop()
 
-            import os
             token_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".ws_token")
-            with open(token_file, 'w') as f:
+            with open(token_file, 'w', encoding='utf-8') as f:
                 f.write(self.auth_token)
 
-            camera_ok = self.active_camera_adapter.connect(
+            camera_ok = await asyncio.to_thread(
+                self.active_camera_adapter.connect,
                 width=self.settings.camera.width,
                 height=self.settings.camera.height,
                 fps=self.settings.camera.fps,
-                params_file=self.settings.camera.params_file
+                params_file=self.settings.camera.params_file,
             )
 
             self._ws_server = await websockets.serve(
                 self._handle_client, self.host, self.port,
                 process_request=self._process_http_request,
-                logger=_get_websocket_logger()
+                logger=_get_websocket_logger(),
+                ping_interval=10,
+                ping_timeout=10,
+                close_timeout=3,
+                max_queue=16,
+                max_size=2 * 1024 * 1024,
             )
             logger.info(f"WebSocket server started on ws://{self.host}:{self.port}")
+
+            if self.shutdown_when_idle:
+                self._idle_shutdown_task = asyncio.create_task(
+                    self._shutdown_after_idle(delay=30.0)
+                )
 
             if camera_ok:
                 logger.info("Camera ready")
@@ -3459,12 +3726,20 @@ class WebSocketServer:
         self.is_previewing = False
         self.is_capturing = False
         self.auto_capture_enabled = False
+        idle_task = self._idle_shutdown_task
+        if idle_task and not idle_task.done():
+            idle_task.cancel()
+        self._idle_shutdown_task = None
         if self.voice_recognizer:
             try:
                 self.voice_recognizer.release()
             except Exception:
                 pass
             self.voice_recognizer = None
+        try:
+            self.depth_analyzer.close()
+        except Exception:
+            pass
         if hasattr(self, '_ws_server') and self._ws_server:
             try:
                 self._ws_server.close()

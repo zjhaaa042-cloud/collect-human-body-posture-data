@@ -70,10 +70,13 @@ class CameraIntrinsics:
     cy: float
     width: int
     height: int
+    orientation: str = "landscape"
 
 
 class CameraManager:
-    def __init__(self):
+    ORIENTATIONS = {"landscape", "portrait_cw", "portrait_ccw"}
+
+    def __init__(self, orientation: str = "landscape"):
         self.pipeline = None
         self.config = None
         self.align_filter = None
@@ -85,6 +88,83 @@ class CameraManager:
         self.device_info = {}
         self.enabled_ir_streams = []
         self.active_stream_profiles: Dict[str, Dict[str, Any]] = {}
+        self.orientation = self._validate_orientation(orientation)
+
+    @classmethod
+    def _validate_orientation(cls, orientation: str) -> str:
+        value = str(orientation or "landscape").strip().lower()
+        return value if value in cls.ORIENTATIONS else "landscape"
+
+    def set_orientation(self, orientation: str) -> str:
+        self.orientation = self._validate_orientation(orientation)
+        return self.orientation
+
+    def _rotate_array(self, frame: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if frame is None or self.orientation == "landscape":
+            return frame
+        rotate_code = cv2.ROTATE_90_CLOCKWISE if self.orientation == "portrait_cw" else cv2.ROTATE_90_COUNTERCLOCKWISE
+        return cv2.rotate(frame, rotate_code)
+
+    @staticmethod
+    def transform_intrinsics(intrinsics: CameraIntrinsics, orientation: str) -> CameraIntrinsics:
+        orientation = CameraManager._validate_orientation(orientation)
+        if orientation == "landscape":
+            return CameraIntrinsics(**{**intrinsics.__dict__, "orientation": orientation})
+        if orientation == "portrait_cw":
+            cx = intrinsics.height - 1 - intrinsics.cy
+            cy = intrinsics.cx
+        else:
+            cx = intrinsics.cy
+            cy = intrinsics.width - 1 - intrinsics.cx
+        return CameraIntrinsics(
+            fx=intrinsics.fy,
+            fy=intrinsics.fx,
+            cx=float(cx),
+            cy=float(cy),
+            width=intrinsics.height,
+            height=intrinsics.width,
+            orientation=orientation,
+        )
+
+    def get_orientation_metadata(self) -> Dict[str, Any]:
+        matrices = {
+            "landscape": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            "portrait_cw": [[0, -1, 0], [1, 0, 0], [0, 0, 1]],
+            "portrait_ccw": [[0, 1, 0], [-1, 0, 0], [0, 0, 1]],
+        }
+        metadata = {"orientation": self.orientation, "raw_to_output_rotation": matrices[self.orientation]}
+        raw = self.get_raw_camera_intrinsics()
+        if raw:
+            output = self.transform_intrinsics(raw, self.orientation)
+            metadata.update({
+                "raw_resolution": [raw.width, raw.height],
+                "output_resolution": [output.width, output.height],
+                "raw_intrinsics": raw.__dict__,
+                "output_intrinsics": output.__dict__,
+            })
+        return metadata
+
+    def get_calibration_snapshot(self, depth_scale: float, calibration_version: str = "orbbec_d2c_v1") -> Dict[str, Any]:
+        """Build an immutable calibration/configuration snapshot for one capture."""
+        metadata = self.get_orientation_metadata()
+        return {
+            "calibration_version": str(calibration_version or "unknown"),
+            "camera": {
+                "name": str(self.device_info.get("name", "")),
+                "serial_number": str(self.device_info.get("serial_number", "")),
+                "uid": str(self.device_info.get("uid", "")),
+                "connection_type": str(self.device_info.get("connection_type", "")),
+            },
+            "orientation": metadata.get("orientation", self.orientation),
+            "raw_to_output_rotation": metadata.get("raw_to_output_rotation"),
+            "raw_resolution": metadata.get("raw_resolution"),
+            "output_resolution": metadata.get("output_resolution"),
+            "raw_intrinsics": metadata.get("raw_intrinsics"),
+            "output_intrinsics": metadata.get("output_intrinsics"),
+            "depth_unit_mm": float(depth_scale),
+            "alignment": "depth_to_color",
+            "coordinate_unit": "millimeter",
+        }
 
     @staticmethod
     def _frame_format(frame):
@@ -629,12 +709,20 @@ class CameraManager:
             logger.info("Camera stream started")
             return True
         except OBError as e:
-            self.last_error = f"启动相机视频流失败: {e}"
+            error_text = str(e)
+            if "0xc00d3704" in error_text.lower():
+                self.last_error = "摄像头正被 OrbbecViewer 或其他程序占用，请关闭占用程序后重新连接"
+            else:
+                self.last_error = f"启动相机视频流失败: {e}"
             logger.error(self.last_error)
             self.is_streaming = False
             return False
         except Exception as e:
-            self.last_error = f"启动相机视频流失败: {e}"
+            error_text = str(e)
+            if "0xc00d3704" in error_text.lower():
+                self.last_error = "摄像头正被 OrbbecViewer 或其他程序占用，请关闭占用程序后重新连接"
+            else:
+                self.last_error = f"启动相机视频流失败: {e}"
             logger.error(self.last_error)
             self.is_streaming = False
             return False
@@ -846,23 +934,29 @@ class CameraManager:
     def get_device_info(self) -> Dict[str, Any]:
         return self.device_info or self._query_first_device_info()
 
-    def get_camera_intrinsics(self) -> Optional[CameraIntrinsics]:
+    def get_raw_camera_intrinsics(self) -> Optional[CameraIntrinsics]:
         try:
             if HAS_ORBBEC and self.pipeline:
                 param = self.pipeline.get_camera_param()
                 intrinsic = param.rgb_intrinsic
-                return CameraIntrinsics(
+                raw = CameraIntrinsics(
                     fx=intrinsic.fx,
                     fy=intrinsic.fy,
                     cx=intrinsic.cx,
                     cy=intrinsic.cy,
                     width=intrinsic.width,
-                    height=intrinsic.height
+                    height=intrinsic.height,
+                    orientation="landscape",
                 )
+                return raw
             return None
         except Exception as e:
             logger.error(f"Failed to get camera intrinsics: {e}")
             return None
+
+    def get_camera_intrinsics(self) -> Optional[CameraIntrinsics]:
+        raw = self.get_raw_camera_intrinsics()
+        return self.transform_intrinsics(raw, self.orientation) if raw else None
 
     def release(self):
         try:

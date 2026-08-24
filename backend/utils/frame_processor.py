@@ -4,7 +4,7 @@ import base64
 from typing import Tuple, Optional
 from loguru import logger
 
-MIN_DEPTH_MM = 20
+MIN_DEPTH_MM = 200
 MAX_DEPTH_MM = 5000
 
 
@@ -60,15 +60,18 @@ class FrameProcessor:
                 small_depth = cv2.resize(depth, self.preview_size, interpolation=cv2.INTER_NEAREST)
             else:
                 small_depth = depth
-            valid_mask = small_depth > 0
+            depth_mm = small_depth.astype(np.float32) * depth_scale
+            valid_mask = (depth_mm >= MIN_DEPTH_MM) & (depth_mm <= MAX_DEPTH_MM)
             if not np.any(valid_mask):
                 return ""
-            depth_mm = small_depth.astype(np.float32) * depth_scale
-            depth_clipped = np.clip(depth_mm, MIN_DEPTH_MM, MAX_DEPTH_MM)
-            depth_clipped = np.where(depth_mm > MIN_DEPTH_MM, depth_clipped, 0)
-            depth_norm = cv2.normalize(depth_clipped, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            depth_norm[~valid_mask] = 0
+            # Use a fixed physical range. Per-frame min/max normalization makes
+            # identical depths change color whenever one noisy pixel changes.
+            ratio = np.clip(
+                (depth_mm - MIN_DEPTH_MM) / (MAX_DEPTH_MM - MIN_DEPTH_MM), 0.0, 1.0
+            )
+            depth_norm = ((1.0 - ratio) * 255.0).astype(np.uint8)
             colored = cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
+            colored[~valid_mask] = 0
             _, buffer = cv2.imencode('.jpg', colored, self._encode_params)
             return base64.b64encode(buffer).decode('utf-8')
         except Exception as e:
@@ -79,12 +82,16 @@ class FrameProcessor:
         try:
             if depth is None or depth.size == 0:
                 return np.zeros((self.preview_size[1], self.preview_size[0], 3), dtype=np.uint8)
-            valid_mask = depth > 0
+            valid_mask = (depth >= MIN_DEPTH_MM) & (depth <= MAX_DEPTH_MM)
             if not np.any(valid_mask):
                 return np.zeros((depth.shape[0], depth.shape[1], 3), dtype=np.uint8)
-            depth_norm = cv2.normalize(depth.astype(np.float32), None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            depth_norm[~valid_mask] = 0
-            return cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
+            ratio = np.clip(
+                (depth.astype(np.float32) - MIN_DEPTH_MM) / (MAX_DEPTH_MM - MIN_DEPTH_MM), 0.0, 1.0
+            )
+            depth_norm = ((1.0 - ratio) * 255.0).astype(np.uint8)
+            colored = cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
+            colored[~valid_mask] = 0
+            return colored
         except Exception as e:
             logger.error(f"Failed to colorize depth: {e}")
             return np.zeros((self.preview_size[1], self.preview_size[0], 3), dtype=np.uint8)

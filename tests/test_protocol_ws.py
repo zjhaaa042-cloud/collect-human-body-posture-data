@@ -14,9 +14,10 @@ from backend.core.camera_adapters import (
     CameraIntrinsicsData,
     FrameBundle,
 )
-from backend.core.protocol_store import ProtocolStore
+from backend.core.protocol_store import ProtocolStore, ProtocolStoreError
 from backend.protocol import format_condition_id, measurement_definitions, primary3
 from backend.server.ws_server import WebSocketServer
+from backend.voice.command_parser import VoiceCommand
 
 
 class FakeProtocolCamera:
@@ -122,7 +123,7 @@ class ProtocolWebSocketTests(unittest.IsolatedAsyncioTestCase):
             "primary3",
             {"operator_id": "OP01"},
             expected_conditions=[server._condition_payload(item) for item in conditions],
-            capture_policy_version="realanthro-capture-v1.0",
+            capture_policy_version="realanthro-capture-v1.1",
             capture_policy=server._protocol_capture_policy(conditions),
         )
         self.server = server
@@ -170,7 +171,30 @@ class ProtocolWebSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(selected["condition_id"], "C_RETAKE")
         self.assertEqual(self.server.depth_analyzer.target, 3000.0)
         self.assertEqual(self.server.depth_analyzer.tolerance, 300.0)
+        self.assertEqual(self.server.depth_analyzer.min_distance, 2700.0)
+        self.assertEqual(self.server.depth_analyzer.max_distance, 3300.0)
         self.server.depth_analyzer.reset.assert_called_once_with()
+
+    def test_old_capture_policy_can_be_closed_but_cannot_add_images(self):
+        condition_item = primary3()[0]
+        self.server.protocol_store.create_subject(
+            "SOLD01",
+            "RealAnthro-RGBD-v1.0",
+            "legacy_policy",
+            {"operator_id": "OP01"},
+            expected_conditions=[self.server._condition_payload(condition_item)],
+            capture_policy_version="realanthro-capture-v1.0",
+        )
+
+        self.server._assert_protocol_subject_writable("SOLD01")
+        with self.assertRaisesRegex(
+            ProtocolStoreError,
+            "缺少跨条件相机指纹门禁",
+        ):
+            self.server._assert_protocol_subject_writable(
+                "SOLD01",
+                require_camera_fingerprint=True,
+            )
 
     async def test_preview_loop_recovers_after_transient_frame_error(self):
         server = WebSocketServer.__new__(WebSocketServer)
@@ -354,6 +378,93 @@ class ProtocolWebSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(server.camera_lock.locked())
         self.assertIsNone(server.preview_task)
 
+    async def test_legacy_capture_commands_are_read_only(self):
+        websocket = SimpleNamespace(send=mock.AsyncMock())
+        self.server._handle_capture = mock.AsyncMock()
+        self.server._start_auto_capture = mock.AsyncMock()
+        self.server._handle_finish = mock.AsyncMock()
+        self.server.data_collector = SimpleNamespace(
+            create_session=mock.Mock(),
+            update_capture_review=mock.Mock(),
+        )
+
+        await self.server._process_message(websocket, {"type": "capture_single"})
+        await self.server._process_message(websocket, {"type": "start_auto_capture"})
+        self.server.active_protocol_subject_id = None
+        await self.server._process_message(websocket, {"type": "create_session"})
+        await self.server._process_message(websocket, {"type": "review_capture"})
+        await self.server._process_message(websocket, {"type": "finish_session"})
+
+        self.server._handle_capture.assert_not_awaited()
+        self.server._start_auto_capture.assert_not_awaited()
+        self.server._handle_finish.assert_not_awaited()
+        self.server.data_collector.create_session.assert_not_called()
+        self.server.data_collector.update_capture_review.assert_not_called()
+        messages = [call.args[0] for call in websocket.send.await_args_list]
+        self.assertTrue(any("旧版单帧采集已停用" in item for item in messages))
+        self.assertTrue(any("旧版自动连拍已停用" in item for item in messages))
+        self.assertTrue(any("旧版会话创建已停用" in item for item in messages))
+        self.assertTrue(any("旧版样本复核写入已停用" in item for item in messages))
+        self.assertTrue(any("旧版会话完成写入已停用" in item for item in messages))
+
+    async def test_legacy_method_boundaries_cannot_write(self):
+        collector = SimpleNamespace(
+            capture=mock.Mock(),
+            close_session=mock.Mock(),
+        )
+        self.server.data_collector = collector
+        self.server._broadcast_auto_status = mock.AsyncMock()
+        self.server.auto_capture_enabled = True
+
+        started = await self.server._start_auto_capture({})
+        captured = await self.server._handle_capture({})
+        finished = await self.server._handle_finish()
+
+        self.assertFalse(started)
+        self.assertFalse(self.server.auto_capture_enabled)
+        self.assertIsNone(captured)
+        self.assertFalse(finished)
+        collector.capture.assert_not_called()
+        collector.close_session.assert_not_called()
+
+    async def test_protocol_notification_failure_does_not_escape(self):
+        websocket = SimpleNamespace(
+            send=mock.AsyncMock(side_effect=RuntimeError("slow client"))
+        )
+
+        await self.server._emit_protocol_message(
+            websocket,
+            {"type": "protocol_subject_state", "data": {}},
+        )
+
+        websocket.send.assert_awaited_once()
+
+    async def test_idle_shutdown_waits_for_first_authenticated_client(self):
+        server = WebSocketServer.__new__(WebSocketServer)
+        server.clients = set()
+        server.is_shutting_down = False
+        server._had_authenticated_client = False
+        with mock.patch(
+            "backend.server.ws_server.asyncio.sleep",
+            new=mock.AsyncMock(),
+        ):
+            await server._shutdown_after_idle(delay=0)
+        self.assertFalse(server.is_shutting_down)
+
+    def test_voice_stop_does_not_cancel_protocol_transaction(self):
+        server = WebSocketServer.__new__(WebSocketServer)
+        server.voice_synthesizer = None
+        server.voice_parser = SimpleNamespace(
+            execute_command=mock.Mock(return_value=VoiceCommand.STOP_CAPTURE)
+        )
+        server._last_voice_command = None
+        server._last_voice_command_at = 0.0
+        server.is_capturing = True
+
+        server._on_voice_command("停止")
+
+        self.assertTrue(server.is_capturing)
+
     async def test_capture_enforces_next_condition_and_commits_five_frames(self):
         conditions = primary3()
         with self.assertRaisesRegex(ValueError, "下一条件"):
@@ -446,7 +557,7 @@ class ProtocolWebSocketTests(unittest.IsolatedAsyncioTestCase):
             expected_conditions=[
                 self.server._condition_payload(item) for item in conditions
             ],
-            capture_policy_version="realanthro-capture-v1.0",
+            capture_policy_version="realanthro-capture-v1.1",
             capture_policy=self.server._protocol_capture_policy(conditions),
         )
         self.server.active_protocol_subject_id = "S0002"

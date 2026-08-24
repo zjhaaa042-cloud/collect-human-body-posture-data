@@ -11,6 +11,8 @@ class CameraSettings(BaseModel):
     fps: int = 30
     align_mode: str = "D2C_HW"
     params_file: Optional[str] = "config/camera_params.json"
+    orientation: str = "landscape"
+    calibration_version: str = "orbbec_d2c_v1"
 
 
 class VoiceSettings(BaseModel):
@@ -37,9 +39,15 @@ class StorageSettings(BaseModel):
 
 
 class DistanceSettings(BaseModel):
-    target_distance_mm: float = 1000
-    tolerance_mm: float = 200
+    target_distance_mm: float = 1500
+    tolerance_mm: float = 300
     roi_ratio: float = 0.3
+    min_distance_mm: float = 1300
+    max_distance_mm: float = 2000
+    min_edge_margin: float = 0.04
+    min_body_depth_coverage: float = 0.75
+    min_quality_score: float = 80.0
+    pose_model_path: str = "models/pose_landmarker_full.task"
 
 
 class GUISettings(BaseModel):

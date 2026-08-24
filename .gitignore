@@ -28,6 +28,7 @@ data/sessions/
 data/realanthro_rgbd_v1/
 data/dev_only_validation/
 models/vosk-model-small-cn-0.22/
+models/pose_landmarker_full.task
 
 # Temp
 temp/

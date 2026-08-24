@@ -2,6 +2,9 @@ import threading
 import queue
 import struct
 import math
+import json
+import time
+from pathlib import Path
 import numpy as np
 from typing import Callable, Optional
 from loguru import logger
@@ -9,6 +12,7 @@ from loguru import logger
 try:
     import vosk
     import pyaudio
+    vosk.SetLogLevel(-1)
     HAS_VOSK = True
 except ImportError:
     HAS_VOSK = False
@@ -29,12 +33,34 @@ class VoiceRecognizer:
         self.thread = None
         self.is_speaking = False
         self.rms_threshold = 200  # Lower threshold for better detection
+        # 100 ms chunks keep microphone and partial recognition latency low.
+        self.chunk_size = max(800, self.sample_rate // 10)
+        self._last_partial = ""
+        self.initialization_error = ""
 
         if HAS_VOSK:
             self._initialize()
 
     def _initialize(self):
+        model_path = Path(self.model_path)
+        if not model_path.is_absolute():
+            project_root = Path(__file__).resolve().parents[2]
+            model_path = project_root / model_path
+
+        required_files = (
+            model_path / "am" / "final.mdl",
+            model_path / "conf" / "model.conf",
+        )
+        if not model_path.is_dir() or not all(path.is_file() for path in required_files):
+            self.initialization_error = (
+                f"Vosk model is not installed or incomplete: {model_path}. "
+                "Extract a Chinese Vosk model so it contains am/final.mdl and conf/model.conf."
+            )
+            logger.warning(f"Voice recognition disabled: {self.initialization_error}")
+            return
+
         try:
+            self.model_path = str(model_path)
             self.model = vosk.Model(self.model_path)
             self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate)
             self.audio = pyaudio.PyAudio()
@@ -50,12 +76,13 @@ class VoiceRecognizer:
             
             logger.info(f"Voice recognizer initialized with model: {self.model_path}")
         except Exception as e:
-            logger.error(f"Failed to initialize voice recognizer: {e}")
+            self.initialization_error = str(e)
+            self.model = None
+            logger.warning(f"Voice recognition disabled: {e}")
 
     def start_listening(self, callback: Callable[[str], None], activity_callback: Callable[[bool], None] = None):
         if not HAS_VOSK or not self.model:
-            logger.warning("Voice recognition not available")
-            return
+            return False
 
         self.callback = callback
         self.activity_callback = activity_callback
@@ -67,15 +94,17 @@ class VoiceRecognizer:
                 channels=1,
                 rate=self.sample_rate,
                 input=True,
-                frames_per_buffer=4000
+                frames_per_buffer=self.chunk_size
             )
 
             self.thread = threading.Thread(target=self._listen_loop, daemon=True)
             self.thread.start()
             logger.info("Voice recognition started")
+            return True
         except Exception as e:
             logger.error(f"Failed to start voice recognition: {e}")
             self.is_listening = False
+            return False
 
     def stop_listening(self):
         self.is_listening = False
@@ -104,7 +133,7 @@ class VoiceRecognizer:
                 if not self.stream:
                     break
                     
-                data = self.stream.read(4000, exception_on_overflow=False)
+                data = self.stream.read(self.chunk_size, exception_on_overflow=False)
                 
                 # Audio activity detection
                 rms = self._calculate_rms(data)
@@ -118,19 +147,30 @@ class VoiceRecognizer:
                 if self.recognizer.AcceptWaveform(data):
                     result = self.recognizer.Result()
                     if isinstance(result, str):
-                        import json
                         try:
                             result = json.loads(result)
                         except Exception:
                             result = {}
                     text = result.get('text', '') if isinstance(result, dict) else ''
                     if text:
+                        self._last_partial = ""
                         logger.info(f"Voice recognized: {text}")
                         if self.callback:
                             self.callback(text)
+                else:
+                    # Vosk's final result waits for an end-of-speech pause.  Commands
+                    # can be acted on safely from a changed partial result instead.
+                    try:
+                        partial = json.loads(self.recognizer.PartialResult()).get("partial", "").strip()
+                    except Exception:
+                        partial = ""
+                    if partial and partial != self._last_partial:
+                        self._last_partial = partial
+                        if self.callback:
+                            self.callback(partial)
             except Exception as e:
                 logger.error(f"Voice recognition error: {e}")
-                continue
+                time.sleep(0.05)
         
         logger.info("Voice listen loop ended")
 

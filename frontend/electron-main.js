@@ -6,6 +6,19 @@ const { spawn } = require('child_process');
 let mainWindow;
 let reactProcess = null;
 
+function stopReactServer() {
+  if (!reactProcess || reactProcess.exitCode !== null) return;
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/PID', String(reactProcess.pid), '/T', '/F'], {
+      windowsHide: true,
+      shell: false
+    });
+  } else {
+    reactProcess.kill('SIGTERM');
+  }
+  reactProcess = null;
+}
+
 function startReactServer() {
   return new Promise((resolve, reject) => {
     const frontendPath = __dirname;
@@ -87,9 +100,7 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
-    if (reactProcess) {
-      reactProcess.kill();
-    }
+    stopReactServer();
   });
 }
 
@@ -127,9 +138,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (reactProcess) {
-    reactProcess.kill();
-  }
+  stopReactServer();
   if (process.platform !== 'darwin') {
     app.quit();
   }

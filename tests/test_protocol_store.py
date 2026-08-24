@@ -25,6 +25,7 @@ from backend.protocol.naming import parse_capture_stem
 
 CONDITION_ID = "C336L_D2500_V000_LSTD_P1_CF_R01"
 SECOND_CONDITION_ID = "CD435I_D2500_V000_LSTD_P1_CF_R01"
+SECOND_GEMINI_CONDITION_ID = "C336L_D2500_V000_LSTD_P1_CF_R02"
 
 
 def condition(condition_id=CONDITION_ID, **extra):
@@ -1118,6 +1119,63 @@ class ProtocolStoreTestCase(unittest.TestCase):
                         },
                     }
                 },
+            )
+
+    def test_subject_camera_fingerprint_rejects_device_change(self):
+        self.store.create_subject(
+            "S0001",
+            protocol_version="1.0",
+            profile_id="camera_lock",
+            subject_metadata={"operator_id": "OP01"},
+            expected_conditions=[CONDITION_ID, SECOND_GEMINI_CONDITION_ID],
+            capture_policy={"lock_camera_fingerprint": True},
+        )
+
+        def camera_metadata(serial):
+            return {
+                "camera_serial": serial,
+                "calibration_sha256": "a" * 64,
+                "depth_scale_mm_per_unit": 1.0,
+                "stream_profiles": {
+                    "color": {
+                        "width": 10,
+                        "height": 8,
+                        "fps": 30,
+                        "format": "RGB8",
+                    },
+                    "depth_raw": {
+                        "width": 7,
+                        "height": 6,
+                        "fps": 30,
+                        "format": "Y16",
+                    },
+                },
+            }
+
+        self.store.begin_capture_attempt("S0001", condition())
+        first = self.store.commit_capture_attempt(
+            "S0001",
+            condition(),
+            burst(include_ir=False),
+            {"status": "PASS", "body_full_visible": "PASS"},
+            camera_metadata("SERIAL_A"),
+        )
+        self.assertTrue(first["camera_metadata"]["subject_camera_fingerprint_sha256"])
+
+        self.store.begin_capture_attempt(
+            "S0001",
+            condition(SECOND_GEMINI_CONDITION_ID),
+        )
+        with self.assertRaisesRegex(
+            ProtocolValidationError,
+            "camera fingerprint changed",
+        ):
+            self.store.commit_capture_attempt(
+                "S0001",
+                condition(SECOND_GEMINI_CONDITION_ID),
+                burst(include_ir=False),
+                {"status": "PASS", "body_full_visible": "PASS"},
+                camera_metadata("SERIAL_B"),
             )
 
     def test_recovery_keeps_unreviewed_warn_as_review_required(self):
