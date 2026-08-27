@@ -1531,6 +1531,23 @@ class ProtocolStoreTestCase(unittest.TestCase):
         with self.assertRaises(SubjectCompletedError):
             self.store.save_anthropometry("S0001", core_anthropometry())
 
+    def test_daily_equipment_check_is_append_only_and_retrievable(self):
+        equipment = {
+            "stadiometer_id": "HEIGHT01",
+            "scale_id": "SCALE01",
+            "tape_id": "TAPE01",
+            "anthropometer_id": "ANTHRO01",
+            "equipment_check_confirmed": True,
+        }
+        first = self.store.save_equipment_check("OP01", equipment)
+        second = self.store.save_equipment_check("OP01", equipment)
+        self.assertNotEqual(first["check_id"], second["check_id"])
+        self.assertTrue(first["sha256"])
+        latest = self.store.get_equipment_check("OP01")
+        self.assertEqual(latest["check_id"], second["check_id"])
+        exact = self.store.get_equipment_check("OP01", check_id=first["check_id"])
+        self.assertEqual(exact["check_id"], first["check_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

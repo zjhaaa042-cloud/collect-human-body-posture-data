@@ -189,8 +189,10 @@ class ProtocolStore:
         self.subjects_dir = self.base_dir / "subjects"
         self.phase_dir = self.subjects_dir  # compatibility alias for callers
         self.manifests_dir = self.base_dir / "manifests"
+        self.equipment_checks_dir = self.base_dir / "equipment_checks"
         self.subjects_dir.mkdir(parents=True, exist_ok=True)
         self.manifests_dir.mkdir(parents=True, exist_ok=True)
+        self.equipment_checks_dir.mkdir(parents=True, exist_ok=True)
         self._locks_guard = threading.Lock()
         self._subject_locks: Dict[str, threading.RLock] = {}
         self._lease_handle = None
@@ -270,6 +272,106 @@ class ProtocolStore:
     # ------------------------------------------------------------------
     # Public subject API
     # ------------------------------------------------------------------
+    def save_equipment_check(
+        self,
+        operator_id: str,
+        equipment: Mapping[str, Any],
+        *,
+        note: str = "",
+        check_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Append an auditable daily anthropometry equipment check.
+
+        A check is intentionally stored outside an individual subject so the
+        same verified instruments can be referenced by multiple subjects on
+        the same day.  Existing records are never overwritten: a re-check
+        produces a new immutable record and becomes the latest one.
+        """
+
+        operator_id = self._validate_safe_id(operator_id, "operator_id")
+        if not isinstance(equipment, Mapping):
+            raise ProtocolValidationError("equipment check requires equipment mapping")
+        try:
+            recorded_date = date.fromisoformat(check_date) if check_date else date.today()
+        except (TypeError, ValueError) as exc:
+            raise ProtocolValidationError("check_date must use YYYY-MM-DD") from exc
+        normalized_note = str(note or "").strip()
+        if len(normalized_note) > 500:
+            raise ProtocolValidationError("equipment check note exceeds 500 characters")
+
+        normalized_equipment: Dict[str, Any] = {}
+        for field_name in REQUIRED_ANTHROPOMETRY_EQUIPMENT_FIELDS:
+            value = str(equipment.get(field_name) or "").strip()
+            if not _SAFE_ID_RE.fullmatch(value):
+                raise ProtocolValidationError(
+                    f"equipment.{field_name} must be a valid equipment ID"
+                )
+            normalized_equipment[field_name] = value
+        if equipment.get("equipment_check_confirmed") is not True:
+            raise ProtocolValidationError(
+                "equipment.equipment_check_confirmed must be true"
+            )
+
+        recorded_at = self._now()
+        check_id = (
+            f"EQ_{recorded_date.strftime('%Y%m%d')}_{operator_id}_"
+            f"{uuid.uuid4().hex[:10]}"
+        )
+        record = {
+            "schema_version": "1.0",
+            "check_id": check_id,
+            "check_date": recorded_date.isoformat(),
+            "checked_at": recorded_at,
+            "operator_id": operator_id,
+            "equipment": {
+                **normalized_equipment,
+                "equipment_check_confirmed": True,
+            },
+            "note": normalized_note,
+        }
+        operator_dir = (
+            self.equipment_checks_dir / recorded_date.isoformat() / operator_id
+        )
+        operator_dir.mkdir(parents=True, exist_ok=True)
+        path = operator_dir / f"{check_id}.json"
+        self._atomic_write_json(path, record)
+        record["sha256"] = self._sha256(path)
+        return self._copy_json(record)
+
+    def get_equipment_check(
+        self,
+        operator_id: str,
+        *,
+        check_id: Optional[str] = None,
+        check_date: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Return a verified daily check, defaulting to today's newest record."""
+
+        operator_id = self._validate_safe_id(operator_id, "operator_id")
+        if check_id:
+            safe_check_id = self._validate_safe_id(check_id, "check_id")
+            candidates = sorted(self.equipment_checks_dir.glob(f"*/*/{safe_check_id}.json"))
+        else:
+            try:
+                recorded_date = date.fromisoformat(check_date) if check_date else date.today()
+            except (TypeError, ValueError) as exc:
+                raise ProtocolValidationError("check_date must use YYYY-MM-DD") from exc
+            candidates = sorted(
+                (self.equipment_checks_dir / recorded_date.isoformat() / operator_id).glob("EQ_*.json")
+            )
+        valid_records = []
+        for path in candidates:
+            record = self._read_json(path)
+            if record.get("operator_id") == operator_id and (
+                not check_id or record.get("check_id") == check_id
+            ):
+                valid_records.append((str(record.get("checked_at") or ""), path, record))
+        if valid_records:
+            _, path, record = max(valid_records, key=lambda item: (item[0], str(item[1])))
+            record["sha256"] = self._sha256(path)
+            return self._copy_json(record)
+        return None
+
     def create_subject(
         self,
         subject_id: str,
@@ -3158,10 +3260,7 @@ class ProtocolStore:
             or ""
         ).strip()
         policy = self._capture_policy_from_state(state)
-        require_equipment = bool(
-            policy.get("require_anthropometry_equipment", False)
-            or policy.get("strict_qc_contract", False)
-        )
+        require_equipment = bool(policy.get("require_anthropometry_equipment", False))
         if require_equipment and not _SAFE_ID_RE.fullmatch(operator_id):
             raise ProtocolValidationError(
                 "strict anthropometry requires a valid operator_id"

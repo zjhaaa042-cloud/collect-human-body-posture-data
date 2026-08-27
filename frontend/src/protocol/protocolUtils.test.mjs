@@ -10,6 +10,7 @@ import {
   subjectOptions,
   validateMeasurements
 } from './protocolUtils.mjs';
+import { buildWorkflowGroups, setupChanges } from './workflowGroups.mjs';
 
 const definitions = [
   {
@@ -137,4 +138,15 @@ test('已通过条件重采必须绑定旧 attempt、原因和明确作废选择
   assert.throws(() => createRetakeMetadata('', false, '原因足够长'), /attempt_id/);
   assert.throws(() => createRetakeMetadata('A001', null, '原因足够长'), /处理方式/);
   assert.throws(() => createRetakeMetadata('A001', true, '短'), /至少/);
+});
+
+test('连续条件按任务组归类，并仅突出变化的现场设置', () => {
+  const conditions = [
+    { condition_id: 'C1', suite: 'gemini_view', camera_code: 'C336L', distance_mm: 2500, view_yaw_deg: 0, pose_id: 'P1', clothing_id: 'CF', repeat_id: 1 },
+    { condition_id: 'C2', suite: 'gemini_view', camera_code: 'C336L', distance_mm: 2500, view_yaw_deg: 90, pose_id: 'P1', clothing_id: 'CF', repeat_id: 1 },
+    { condition_id: 'C3', suite: 'd435i_view', camera_code: 'CD435I', distance_mm: 3000, view_yaw_deg: 0, pose_id: 'P1', clothing_id: 'CF', repeat_id: 1 }
+  ];
+  assert.deepEqual(buildWorkflowGroups(conditions).map((group) => group.id), ['gemini-standard', 'd435i']);
+  assert.deepEqual(setupChanges(conditions[0], conditions[1]), ['朝向']);
+  assert.deepEqual(setupChanges(conditions[1], conditions[2]), ['相机', '距离/脚位', '朝向']);
 });

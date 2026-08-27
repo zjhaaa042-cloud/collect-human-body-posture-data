@@ -8,6 +8,15 @@ echo   Body Posture Data Collection System
 echo ==========================================
 echo.
 
+rem Avoid starting a second manager when the workspace is already ready.
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $backend = (Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8765/health' -TimeoutSec 2).StatusCode -eq 200; $frontend = (Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3000' -TimeoutSec 2).StatusCode -eq 200; if ($backend -and $frontend) { exit 0 }; exit 1" >nul 2>nul
+if not errorlevel 1 (
+  echo [OK] The collector is already running.
+  echo Opening the workspace instead of starting duplicate services...
+  start "" "http://127.0.0.1:3000"
+  exit /b 0
+)
+
 set "NEED_INSTALL="
 
 set "PYTHON_CMD=.venv\Scripts\python.exe"
@@ -31,16 +40,20 @@ if not defined NEED_INSTALL (
 )
 
 if not defined NEED_INSTALL (
-  "%PYTHON_CMD%" -c "import pydantic, websockets, cv2, numpy, loguru, mediapipe, pyorbbecsdk, pyrealsense2" >nul 2>nul
+  "%PYTHON_CMD%" -c "import pydantic, websockets, cv2, numpy, loguru" >nul 2>nul
   if errorlevel 1 (
-    echo [WARN] Backend or RGB-D camera SDK dependencies are incomplete.
+    echo [WARN] Core backend dependencies are incomplete.
     set "NEED_INSTALL=1"
   )
 )
 
 if not exist "models\pose_landmarker_full.task" (
-  echo [WARN] MediaPipe pose model was not found.
-  set "NEED_INSTALL=1"
+  echo [INFO] Pose model was not found. The workspace can still start; pose quality tips will be unavailable.
+)
+
+if not defined NEED_INSTALL (
+  "%PYTHON_CMD%" -c "import mediapipe" >nul 2>nul
+  if errorlevel 1 echo [INFO] MediaPipe is not installed. The workspace can still start; pose quality tips will be unavailable.
 )
 
 if not exist "frontend\node_modules\.bin\vite.cmd" (
@@ -72,13 +85,6 @@ if defined NEED_INSTALL (
       exit /b 1
     )
   )
-  "%PYTHON_CMD%" -c "import pyorbbecsdk, pyrealsense2" >nul 2>nul
-  if errorlevel 1 (
-    echo [ERROR] Gemini 336L or D435i Python SDK is still unavailable.
-    echo Required imports: pyorbbecsdk and pyrealsense2
-    pause
-    exit /b 1
-  )
   if not exist "frontend\node_modules\.bin\vite.cmd" (
     echo.
     echo [WARN] Frontend startup dependency is still missing.
@@ -109,9 +115,9 @@ start "Body Posture Collector" /min "%PYTHON_CMD%" run_all.py
 echo.
 echo Done! Both services are starting under one process manager...
 echo Closing the frontend will also stop backend and Vite after 5 seconds.
+echo Run go.bat again later to reopen an already-running workspace safely.
 echo.
 echo Backend:  ws://localhost:8765
 echo Frontend: http://localhost:3000
 echo.
-echo Window will close in 3 seconds...
-timeout /t 3 /nobreak >nul
+exit /b 0

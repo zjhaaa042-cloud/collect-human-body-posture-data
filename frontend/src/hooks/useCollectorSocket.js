@@ -43,6 +43,8 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
   const [reviewPreview, setReviewPreview] = useState(null);
   const [reviewPreviewLoading, setReviewPreviewLoading] = useState(false);
   const [reviewPreviewError, setReviewPreviewError] = useState('');
+  const [dualSessionState, setDualSessionState] = useState(null);
+  const [selectedOutputDirectory, setSelectedOutputDirectory] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -182,6 +184,14 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
         case 'protocol_subject_list_changed':
           sendOn(socket, 'get_protocol_subjects');
           break;
+        case 'output_directory_selected':
+          setBusyAction('');
+          if (payload.success === false) {
+            message.error(payload.error || '无法打开文件夹选择窗口');
+          } else if (payload.path) {
+            setSelectedOutputDirectory(payload.path);
+          }
+          break;
         case 'protocol_subject_state':
           if ((payload.state || payload)?.subject_id) {
             activeSubjectIdRef.current = (payload.state || payload).subject_id;
@@ -255,6 +265,13 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
             ? message.error(payload.error || '人体测量保存失败')
             : message.success(payload.message || '人体测量已保存');
           break;
+        case 'daily_equipment_check_result':
+          applyReturnedState(payload);
+          setBusyAction('');
+          payload.success === false
+            ? message.error(payload.error || '器材日检保存失败')
+            : message.success(payload.message || '器材日检已保存');
+          break;
         case 'protocol_completion_result':
           applyReturnedState(payload);
           markReconciliationRequired(payload);
@@ -263,6 +280,24 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           payload.success === false || String(payload.report?.status).toUpperCase() === 'CORRUPTED'
             ? message.error(payload.error || (String(payload.report?.status).toUpperCase() === 'CORRUPTED' ? '完整性检查失败：记录已标记为 CORRUPTED' : '尚未通过完成门禁'))
             : message.success(payload.message || '受试者采集已完成');
+          break;
+        case 'dual_session_state':
+          setBusyAction('');
+          if (payload.success === false) {
+            message.error(payload.error || '双机任务创建失败');
+          } else {
+            setDualSessionState(payload);
+            message.success('双机八角度任务已创建');
+          }
+          break;
+        case 'dual_capture_result':
+          setBusyAction('');
+          if (payload.success === false) {
+            message.error(payload.error || '双机采集失败');
+          } else {
+            if (payload.state) setDualSessionState(payload.state);
+            message.success(`${payload.yaw_deg}° 双机采集完成`);
+          }
           break;
         case 'error':
           if (reviewPreviewRequestRef.current) {
@@ -357,6 +392,8 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     setCompletionReport(null);
     setReviewPreview(null);
     setReviewPreviewError('');
+    setDualSessionState(null);
+    setSelectedOutputDirectory('');
     previewWatchdogTimer = window.setInterval(() => {
       const now = Date.now();
       const baseline = lastPreviewAt || previewExpectedAt;
@@ -500,9 +537,25 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
       equipment
     }, 'measurements');
   }, [protocolState?.subject_id, send]);
+  const saveDailyEquipmentCheck = useCallback((equipment, note = '') => send('save_daily_equipment_check', {
+    subject_id: protocolState?.subject_id,
+    equipment,
+    note
+  }, 'equipment-check'), [protocolState?.subject_id, send]);
   const completeSubject = useCallback(() => send('complete_protocol_subject', {
     subject_id: protocolState?.subject_id
   }, 'completion'), [protocolState?.subject_id, send]);
+  const createDualSession = useCallback((payload) => send('create_dual_session', payload, 'create-dual-session'), [send]);
+  const selectOutputDirectory = useCallback(() => send('select_output_directory', {}, 'select-output-directory'), [send]);
+  const startNextDualSubject = useCallback(() => {
+    setDualSessionState(null);
+  }, []);
+  const captureDualGroup = useCallback((yawDeg, distanceMm) => send('capture_dual_group', {
+    subject_id: dualSessionState?.subject_id,
+    yaw_deg: yawDeg,
+    distance_mm: distanceMm,
+    ready: true
+  }, 'capture-dual'), [dualSessionState?.subject_id, send]);
 
   const controlActions = useMemo(() => ({
     lastCaptureResult,
@@ -521,12 +574,20 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     captureCondition,
     reviewCapture,
     saveAnthropometry,
+    saveDailyEquipmentCheck,
+    dualSessionState,
+    selectedOutputDirectory,
+    createDualSession,
+    selectOutputDirectory,
+    startNextDualSubject,
+    captureDualGroup,
     completeSubject
   }), [
     captureCondition, completeSubject, completionReport, connectCamera, createSubject,
     disconnectCamera, lastCaptureResult, refreshCamera, refreshProtocol,
     requestReviewPreview, reviewCapture, reviewPreview, reviewPreviewError,
-    reviewPreviewLoading, saveAnthropometry, selectPreviewCondition, selectSubject
+    reviewPreviewLoading, saveAnthropometry, saveDailyEquipmentCheck, selectPreviewCondition, selectSubject,
+    dualSessionState, selectedOutputDirectory, createDualSession, selectOutputDirectory, startNextDualSubject, captureDualGroup
   ]);
 
   return {
@@ -546,6 +607,13 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     captureCondition,
     reviewCapture,
     saveAnthropometry,
+    saveDailyEquipmentCheck,
+    dualSessionState,
+    selectedOutputDirectory,
+    createDualSession,
+    selectOutputDirectory,
+    startNextDualSubject,
+    captureDualGroup,
     completeSubject,
     controlActions
   };

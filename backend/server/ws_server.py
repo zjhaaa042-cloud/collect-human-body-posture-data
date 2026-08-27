@@ -30,6 +30,8 @@ from ..core.protocol_store import (
     ProtocolStore,
     ProtocolStoreError,
 )
+from ..core.dual_capture import DualCameraCaptureCoordinator, DualCameraCaptureError
+from ..core.dual_session_store import DualSessionStore, DualSessionStoreError
 from ..protocol import (
     Condition,
     full31_no_lux,
@@ -73,6 +75,29 @@ _MAX_AUTO_DISTANCE_DELTA_MM = 1000.0
 _MAX_AUTO_CAPTURE_COUNT = 100
 _MAX_AUTO_CAPTURE_INTERVAL_SEC = 60.0
 _LEGACY_WRITES_ENABLED = False
+
+
+def _choose_native_output_directory() -> str:
+    """Open the local Windows folder chooser for browser-based workspaces."""
+    if os.name != "nt":
+        raise RuntimeError("文件夹选择仅支持本机 Windows 采集服务")
+    try:
+        from tkinter import Tk, filedialog
+
+        dialog_root = Tk()
+        dialog_root.withdraw()
+        dialog_root.attributes("-topmost", True)
+        try:
+            selected = filedialog.askdirectory(
+                parent=dialog_root,
+                title="选择双机采集数据输出文件夹",
+                mustexist=False,
+            )
+        finally:
+            dialog_root.destroy()
+    except Exception as exc:
+        raise RuntimeError(f"无法打开 Windows 文件夹选择窗口：{exc}") from exc
+    return str(selected or "")
 
 _PROTOCOL_VERSION = "RealAnthro-RGBD-v1.0"
 _PROTOCOL_CAPTURE_POLICY_VERSION = "realanthro-capture-v1.1"
@@ -778,6 +803,14 @@ class WebSocketServer:
             if isinstance(protocol_snapshot, Mapping)
             else []
         )
+        operator_id = str(raw.get("subject_metadata", {}).get("operator_id", ""))
+        daily_equipment_check = None
+        get_equipment_check = getattr(self.protocol_store, "get_equipment_check", None)
+        if operator_id and callable(get_equipment_check):
+            try:
+                daily_equipment_check = get_equipment_check(operator_id)
+            except Exception as exc:
+                logger.warning("Unable to load daily equipment check: {}", exc)
         return {
             "subject_id": raw["subject_id"],
             "reconciliation_required": self._protocol_reconciliation_required(
@@ -811,6 +844,7 @@ class WebSocketServer:
                 "missing_required": missing_required,
                 "complete": anthro_complete,
             },
+            "daily_equipment_check": daily_equipment_check,
             "completion": {
                 "can_complete": not blockers and not completed,
                 "blockers": blockers,
@@ -986,6 +1020,7 @@ class WebSocketServer:
             "required_qc_check_counts": dict(_REQUIRED_QC_CHECK_COUNTS),
             "warn_requires_manual_review": True,
             "strict_qc_contract": True,
+            "require_anthropometry_equipment": False,
             "lock_camera_fingerprint": True,
             "view_angle_direction": "clockwise_from_overhead",
         }
@@ -998,7 +1033,7 @@ class WebSocketServer:
         if metadata.get("consent_internal") is not True:
             raise ValueError("必须确认受试者已同意本项目内部采集")
         operator_id = str(metadata.get("operator_id") or "").strip()
-        if not _OPERATOR_ID_PATTERN.fullmatch(operator_id):
+        if operator_id and not _OPERATOR_ID_PATTERN.fullmatch(operator_id):
             raise ValueError("操作员编号只能包含字母、数字、下划线或连字符，长度 1–32")
         if profile_id == "full36":
             raise ValueError("Full-36 当前被后端禁用；完成照度计、灯具和逐条件 lux 元数据支持后再启用")
@@ -2441,28 +2476,29 @@ class WebSocketServer:
         records = data.get("records")
         if not isinstance(records, list):
             raise ValueError("records 必须是测量记录数组")
-        equipment = data.get("equipment")
-        required_equipment_fields = (
-            "stadiometer_id",
-            "scale_id",
-            "tape_id",
-            "anthropometer_id",
-        )
+        equipment = data.get("equipment") or {}
         if not isinstance(equipment, Mapping):
             raise ValueError("必须提交本次人工测量工具记录")
-        normalized_equipment = {}
-        for field_name in required_equipment_fields:
-            value = str(equipment.get(field_name) or "").strip()
-            if not re.fullmatch(r"[\w-]{1,64}", value):
-                raise ValueError(f"{field_name} 必须填写 1–64 位工具编号")
-            normalized_equipment[field_name] = value
-        if equipment.get("equipment_check_confirmed") is not True:
-            raise ValueError("必须确认测量工具已完成零点/校准状态检查")
-        normalized_equipment.update({
-            "equipment_check_confirmed": True,
-            "checked_at": datetime.now(timezone.utc).isoformat(),
-        })
         subject_state = self.protocol_store.get_subject_state(subject_id)
+        operator_id = str(subject_state.get("subject_metadata", {}).get("operator_id", ""))
+        daily_check_id = str(equipment.get("daily_check_id") or "").strip()
+        if daily_check_id:
+            get_equipment_check = getattr(self.protocol_store, "get_equipment_check", None)
+            daily_check = (
+                get_equipment_check(operator_id, check_id=daily_check_id)
+                if callable(get_equipment_check) else None
+            )
+            if not isinstance(daily_check, Mapping):
+                raise ValueError("未找到当前操作员的器材日检记录，请重新执行日检")
+            normalized_equipment = {
+                **dict(daily_check.get("equipment") or {}),
+                "daily_check_id": daily_check["check_id"],
+                "daily_check_date": daily_check.get("check_date"),
+                "daily_check_sha256": daily_check.get("sha256"),
+                "used_at": datetime.now(timezone.utc).isoformat(),
+            }
+        else:
+            normalized_equipment = {}
         snapshot = subject_state.get("protocol_snapshot")
         frozen_definitions = (
             snapshot.get("measurements") if isinstance(snapshot, Mapping) else None
@@ -2491,7 +2527,6 @@ class WebSocketServer:
             if record.get("m3") not in {None, ""}:
                 values.append(record.get("m3"))
             measurements[field_name] = values
-        operator_id = str(subject_state.get("subject_metadata", {}).get("operator_id", ""))
         saved = await asyncio.to_thread(
             self.protocol_store.save_anthropometry,
             subject_id,
@@ -2548,6 +2583,151 @@ class WebSocketServer:
                 )
         except Exception:
             logger.exception("Anthropometry committed but client notification failed")
+        return result
+
+    async def _save_daily_equipment_check(self, websocket, data: dict):
+        subject_id = str(data.get("subject_id") or self.active_protocol_subject_id or "")
+        if not subject_id:
+            raise ValueError("请先选择受试者，再保存该操作员的器材日检")
+        state = self.protocol_store.get_subject_state(subject_id)
+        operator_id = str(state.get("subject_metadata", {}).get("operator_id", ""))
+        if not _OPERATOR_ID_PATTERN.fullmatch(operator_id):
+            raise ValueError("当前受试者缺少有效操作员编号")
+        save_equipment_check = getattr(self.protocol_store, "save_equipment_check", None)
+        if not callable(save_equipment_check):
+            raise ValueError("当前存储版本不支持器材日检记录")
+        equipment = data.get("equipment")
+        if not isinstance(equipment, Mapping):
+            raise ValueError("必须提交器材日检工具记录")
+        check = await asyncio.to_thread(
+            save_equipment_check,
+            operator_id,
+            equipment,
+            note=str(data.get("note") or ""),
+        )
+        public_state = self._protocol_subject_state(subject_id)
+        result = {
+            "success": True,
+            "message": "器材日检已保存，今天的同一操作员可直接复用",
+            "check": check,
+            "state": public_state,
+        }
+        if websocket is not None:
+            await self._emit_protocol_message(websocket, {
+                "type": "daily_equipment_check_result", "data": result,
+            })
+            await self._emit_protocol_message(websocket, {
+                "type": "protocol_subject_state", "data": public_state,
+            })
+        return result
+
+    def _dual_adapters(self):
+        registry = self.camera_registry.adapters
+        return registry["orbbec"], registry["realsense"]
+
+    def _dual_session_state(self) -> dict:
+        store = getattr(self, "dual_session_store", None)
+        subject_id = getattr(self, "dual_active_subject_id", "")
+        if store is None or not subject_id:
+            return {"active": False, "angles": []}
+        state = store.get_session(subject_id)
+        angles = list(state.get("angles", {}).values())
+        captured = sum(item.get("status") == "CAPTURED" for item in angles)
+        return {
+            "active": True,
+            "subject_id": subject_id,
+            "output_root": state.get("output_root"),
+            "clothing_note": state.get("clothing_note", ""),
+            "target_distance_mm": state.get("target_distance_mm"),
+            "angles": angles,
+            "progress": {"captured": captured, "expected": len(angles)},
+            "next_yaw_deg": next(
+                (item.get("yaw_deg") for item in angles if item.get("status") != "CAPTURED"),
+                None,
+            ),
+        }
+
+    async def _create_dual_session(self, websocket, data: dict):
+        subject_id = validate_subject_id(str(data.get("subject_id") or "").strip().upper())
+        output_path = str(data.get("output_path") or "").strip()
+        if not output_path:
+            raise ValueError("请选择数据输出文件夹")
+        try:
+            distance = data.get("target_distance_mm")
+            target_distance_mm = int(distance) if distance not in {None, ""} else None
+        except (TypeError, ValueError) as exc:
+            raise ValueError("距离必须是毫米整数") from exc
+        store = await asyncio.to_thread(DualSessionStore, output_path)
+        await asyncio.to_thread(
+            store.create_session,
+            subject_id,
+            clothing_note=str(data.get("clothing_note") or ""),
+            target_distance_mm=target_distance_mm,
+        )
+        self.dual_session_store = store
+        self.dual_active_subject_id = subject_id
+        result = {"success": True, "state": self._dual_session_state()}
+        await self._emit_protocol_message(websocket, {
+            "type": "dual_session_state", "data": result["state"],
+        })
+        return result
+
+    async def _capture_dual_group(self, websocket, data: dict):
+        if not bool(data.get("ready")):
+            raise ValueError("请确认受试者已按当前角度就位且全身完整入框")
+        store = getattr(self, "dual_session_store", None)
+        subject_id = str(data.get("subject_id") or getattr(self, "dual_active_subject_id", ""))
+        if store is None or not subject_id:
+            raise ValueError("请先创建双机采集任务")
+        state = self._dual_session_state()
+        yaw_deg = int(data.get("yaw_deg"))
+        expected_yaw = state.get("next_yaw_deg")
+        if expected_yaw is not None and yaw_deg != expected_yaw:
+            raise ValueError(f"请按顺序采集，下一角度为 {expected_yaw}°")
+        gemini, d435i = self._dual_adapters()
+        coordinator = DualCameraCaptureCoordinator(gemini, d435i)
+        if self.capture_lock.locked():
+            raise ValueError("正在采集中，请稍候")
+        async with self.capture_lock:
+            self.is_capturing = True
+            try:
+                if self.voice_synthesizer:
+                    self.voice_synthesizer.speak("请保持姿势不动，两秒后双机采集。", blocking=False)
+                await asyncio.sleep(2.0)
+                burst = await coordinator.capture_burst(
+                    frame_count=_PROTOCOL_BURST_FRAMES,
+                    interval_ms=_PROTOCOL_BURST_INTERVAL_SEC * 1000.0,
+                )
+                distance = data.get("distance_mm")
+                distance_mm = int(distance) if distance not in {None, ""} else None
+                committed = await asyncio.to_thread(
+                    store.commit_group,
+                    subject_id,
+                    yaw_deg,
+                    [pair.gemini for pair in burst.pairs],
+                    [pair.d435i for pair in burst.pairs],
+                    audit=burst.audit_payload(),
+                    metadata={
+                        "distance_mm": distance_mm,
+                        "ready_confirmed_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                self.dual_active_subject_id = subject_id
+                result = {
+                    "success": True,
+                    "yaw_deg": yaw_deg,
+                    "attempt_id": committed["attempt_id"],
+                    "sync_audit": burst.audit_payload(),
+                    "state": self._dual_session_state(),
+                }
+            finally:
+                self.is_capturing = False
+        await self._emit_protocol_message(websocket, {
+            "type": "dual_capture_result", "data": result,
+        })
+        await self._emit_protocol_message(websocket, {
+            "type": "dual_session_state", "data": result["state"],
+        })
         return result
 
     async def _complete_protocol_subject(self, websocket, data: dict):
@@ -2914,6 +3094,20 @@ class WebSocketServer:
         ]
         status = dict(adapter.get_status(devices=active_devices))
         status["devices"] = devices
+        connected_cameras = []
+        for candidate in self.camera_registry.adapters.values():
+            candidate_status = candidate.get_status()
+            if candidate_status.get("connected"):
+                connected_cameras.append({
+                    "backend": candidate.backend,
+                    "device": candidate_status.get("device") or {},
+                    "message": candidate_status.get("message", ""),
+                })
+        status["connected_cameras"] = connected_cameras
+        status["dual_ready"] = {
+            str(item["device"].get("camera_code") or "")
+            for item in connected_cameras
+        } >= {"C336L", "CD435I"}
         status["active_backend"] = adapter.backend
         status["orientation"] = (
             getattr(getattr(self, "camera", None), "orientation", "landscape")
@@ -3006,9 +3200,6 @@ class WebSocketServer:
                         ok = False
                     else:
                         adapter = self.camera_registry.for_device(device_id)
-                        previous_adapter = self.active_camera_adapter
-                        if previous_adapter is not adapter:
-                            await asyncio.to_thread(previous_adapter.disconnect)
                         height = (
                             720
                             if adapter.backend == "realsense"
@@ -3021,6 +3212,7 @@ class WebSocketServer:
                             height=height,
                             fps=self.settings.camera.fps,
                             params_file=self.settings.camera.params_file,
+                            enable_infrared=False,
                         )
                         self.active_camera_adapter = adapter
                         if ok:
@@ -3275,6 +3467,29 @@ class WebSocketServer:
             }, ensure_ascii=False))
         elif msg_type == "get_protocol_subjects":
             await self._send_protocol_subjects(websocket)
+        elif msg_type == "select_output_directory":
+            try:
+                selected = await asyncio.to_thread(_choose_native_output_directory)
+                response = {"success": True, "path": selected}
+            except Exception as exc:
+                response = {"success": False, "error": str(exc)}
+            await websocket.send(json.dumps({
+                "type": "output_directory_selected", "data": response,
+            }, ensure_ascii=False))
+        elif msg_type == "create_dual_session":
+            try:
+                await self._create_dual_session(websocket, data)
+            except Exception as exc:
+                await websocket.send(json.dumps({
+                    "type": "dual_session_state", "data": {"success": False, "error": str(exc)},
+                }, ensure_ascii=False))
+        elif msg_type == "capture_dual_group":
+            try:
+                await self._capture_dual_group(websocket, data)
+            except Exception as exc:
+                await websocket.send(json.dumps({
+                    "type": "dual_capture_result", "data": {"success": False, "error": str(exc)},
+                }, ensure_ascii=False))
         elif msg_type == "create_protocol_subject":
             await self._create_protocol_subject(websocket, data)
         elif msg_type == "select_protocol_subject":
@@ -3333,6 +3548,15 @@ class WebSocketServer:
                 logger.warning(f"Anthropometry rejected: {exc}")
                 await websocket.send(json.dumps({
                     "type": "anthropometry_result",
+                    "data": {"success": False, "error": str(exc)},
+                }, ensure_ascii=False))
+        elif msg_type == "save_daily_equipment_check":
+            try:
+                await self._save_daily_equipment_check(websocket, data)
+            except Exception as exc:
+                logger.warning(f"Daily equipment check rejected: {exc}")
+                await websocket.send(json.dumps({
+                    "type": "daily_equipment_check_result",
                     "data": {"success": False, "error": str(exc)},
                 }, ensure_ascii=False))
         elif msg_type == "complete_protocol_subject":
@@ -3509,6 +3733,70 @@ class WebSocketServer:
                 pass
         self.preview_task = None
 
+    def _dual_preview_ready(self) -> bool:
+        try:
+            gemini, d435i = self._dual_adapters()
+            return bool(
+                gemini.get_status().get("connected")
+                and d435i.get_status().get("connected")
+            )
+        except Exception:
+            return False
+
+    async def _broadcast_dual_preview(self) -> bool:
+        """Publish two independent preview streams when both cameras are live."""
+
+        if not self._dual_preview_ready():
+            return False
+        gemini, d435i = self._dual_adapters()
+        async with self.camera_lock:
+            gemini_frame, d435i_frame = await asyncio.gather(
+                asyncio.to_thread(gemini.get_frames, 1000),
+                asyncio.to_thread(d435i.get_frames, 1000),
+            )
+
+        async def encode(frame):
+            if frame is None:
+                return {"color": "", "depth": "", "available": False}
+            color, depth = await asyncio.gather(
+                asyncio.to_thread(self.frame_processor.encode_preview_fast, frame.color, True)
+                if frame.color is not None else asyncio.sleep(0, result=""),
+                asyncio.to_thread(self.frame_processor.encode_depth_preview_fast, frame.depth, frame.depth_scale)
+                if frame.depth is not None else asyncio.sleep(0, result=""),
+            )
+            return {
+                "color": color,
+                "depth": depth,
+                "available": bool(color or depth),
+                "host_timestamp_ns": frame.host_timestamp_ns,
+                "frame_number": frame.frame_number,
+            }
+
+        gemini_preview, d435i_preview = await asyncio.gather(
+            encode(gemini_frame), encode(d435i_frame)
+        )
+        if gemini_frame and gemini_frame.depth is not None:
+            distance_info = await asyncio.to_thread(
+                self.depth_analyzer.analyze_distance,
+                gemini_frame.depth,
+                gemini_frame.color,
+                gemini_frame.depth_scale,
+            )
+            distance_data = self._distance_payload(distance_info)
+        else:
+            distance_data = {"distance_mm": 0, "status": DistanceStatus.NO_DATA.value, "message": "Gemini 预览无深度数据", "confidence": 0}
+        await self._broadcast({
+            "type": "preview_frame",
+            "data": {
+                "color": gemini_preview["color"],
+                "depth": gemini_preview["depth"],
+                "distance": distance_data,
+                "cameras": {"C336L": gemini_preview, "CD435I": d435i_preview},
+                "dual_ready": True,
+            },
+        })
+        return True
+
     async def _preview_loop(self):
         current_task = asyncio.current_task()
         consecutive_errors = 0
@@ -3525,6 +3813,10 @@ class WebSocketServer:
                     await asyncio.sleep(max(0.1, 1.0 / max(1, self.settings.gui.preview_fps)))
                     continue
                 try:
+                    if await self._broadcast_dual_preview():
+                        consecutive_errors = 0
+                        await asyncio.sleep(1.0 / max(1, self.settings.gui.preview_fps))
+                        continue
                     async with self.camera_lock:
                         frames = await asyncio.to_thread(
                             self.active_camera_adapter.get_frames,

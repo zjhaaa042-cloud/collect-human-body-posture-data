@@ -640,17 +640,55 @@ class ProtocolWebSocketTests(unittest.IsolatedAsyncioTestCase):
                 })
         await self.server._save_protocol_anthropometry(None, {
             "records": records,
-            "equipment": {
-                "stadiometer_id": "HEIGHT01",
-                "scale_id": "SCALE01",
-                "tape_id": "TAPE01",
-                "anthropometer_id": "ANTHRO01",
-                "equipment_check_confirmed": True,
-            },
+            "equipment": {},
         })
         state = self.server._protocol_subject_state("S0001")
         self.assertTrue(state["anthropometry"]["complete"])
         self.assertEqual(len(state["anthropometry"]["records"]), 13)
+
+    async def test_subject_creation_allows_omitting_operator_id(self):
+        state = await self.server._create_protocol_subject(None, {
+            "subject_id": "S0002",
+            "profile_id": "primary3",
+            "metadata": {"consent_internal": True},
+        })
+        self.assertEqual(state["subject_id"], "S0002")
+        self.assertEqual(state["subject_metadata"]["operator_id"], "")
+
+    async def test_daily_equipment_check_can_be_referenced_by_anthropometry(self):
+        equipment = {
+            "stadiometer_id": "HEIGHT01",
+            "scale_id": "SCALE01",
+            "tape_id": "TAPE01",
+            "anthropometer_id": "ANTHRO01",
+            "equipment_check_confirmed": True,
+        }
+        daily = await self.server._save_daily_equipment_check(None, {
+            "subject_id": "S0001", "equipment": equipment,
+        })
+        self.assertEqual(
+            self.server._protocol_subject_state("S0001")["daily_equipment_check"]["check_id"],
+            daily["check"]["check_id"],
+        )
+        records = []
+        for definition in measurement_definitions():
+            if definition.required:
+                for field_name in definition.field_names:
+                    records.append({
+                        "measurement_id": definition.measurement_id,
+                        "field_name": field_name,
+                        "m1": 170.0 if definition.measurement_id == "M01" else 70.0,
+                        "m2": 170.2 if definition.measurement_id == "M01" else 70.2,
+                    })
+        await self.server._save_protocol_anthropometry(None, {
+            "records": records,
+            "equipment": {"daily_check_id": daily["check"]["check_id"]},
+        })
+        state = self.server._protocol_subject_state("S0001")
+        self.assertEqual(
+            state["anthropometry"]["metadata"]["equipment"]["daily_check_id"],
+            daily["check"]["check_id"],
+        )
 
 
 if __name__ == "__main__":

@@ -490,9 +490,9 @@ class CameraManager:
             "message": message if connected else (self.last_error or message)
         }
 
-    def connect(self, width: int = 1280, height: int = 800, fps: int = 30, params_file: str = None, device_id: str = "") -> bool:
+    def connect(self, width: int = 1280, height: int = 800, fps: int = 30, params_file: str = None, device_id: str = "", enable_infrared: bool = True) -> bool:
         self.release()
-        if not self.initialize(width=width, height=height, fps=fps, params_file=params_file, device_id=device_id):
+        if not self.initialize(width=width, height=height, fps=fps, params_file=params_file, device_id=device_id, enable_infrared=enable_infrared):
             return False
         return self.start_stream()
 
@@ -533,7 +533,7 @@ class CameraManager:
             logger.error(f"Failed to load camera params: {e}")
             return False
 
-    def initialize(self, width: int = 1280, height: int = 800, fps: int = 30, params_file: str = None, device_id: str = "") -> bool:
+    def initialize(self, width: int = 1280, height: int = 800, fps: int = 30, params_file: str = None, device_id: str = "", enable_infrared: bool = True) -> bool:
         try:
             self.last_error = ""
             self.device_info = {}
@@ -614,47 +614,48 @@ class CameraManager:
                     )
                     enabled_streams += 1
 
-            # Prefer the two physical stereo IR streams.  Devices exposing only
-            # one IR stream are recorded as ``single`` instead of duplicating it.
-            ir_sensor_candidates = (
-                ("left", getattr(OBSensorType, "LEFT_IR_SENSOR", None)),
-                ("right", getattr(OBSensorType, "RIGHT_IR_SENSOR", None)),
-            )
-            for ir_name, sensor_type in ir_sensor_candidates:
-                if sensor_type is None:
-                    continue
-                try:
-                    ir_profiles = self.pipeline.get_stream_profile_list(sensor_type)
-                    ir_profile = self._select_video_profile(
-                        ir_profiles, width, height, OBFormat.Y8, fps, f"{ir_name} IR"
-                    ) if ir_profiles else None
-                    if ir_profile:
-                        self.config.enable_stream(ir_profile)
-                        self.active_stream_profiles[f"ir_{ir_name}"] = (
-                            self._profile_summary(ir_profile)
-                        )
-                        self.enabled_ir_streams.append(ir_name)
-                        enabled_streams += 1
-                except Exception as e:
-                    logger.warning(f"Failed to enable {ir_name} IR stream: {e}")
-
-            if not self.enabled_ir_streams:
-                single_ir_sensor = getattr(OBSensorType, "IR_SENSOR", None)
-                if single_ir_sensor is not None:
+            if enable_infrared:
+                # Prefer the two physical stereo IR streams.  Devices exposing only
+                # one IR stream are recorded as ``single`` instead of duplicating it.
+                ir_sensor_candidates = (
+                    ("left", getattr(OBSensorType, "LEFT_IR_SENSOR", None)),
+                    ("right", getattr(OBSensorType, "RIGHT_IR_SENSOR", None)),
+                )
+                for ir_name, sensor_type in ir_sensor_candidates:
+                    if sensor_type is None:
+                        continue
                     try:
-                        ir_profiles = self.pipeline.get_stream_profile_list(single_ir_sensor)
+                        ir_profiles = self.pipeline.get_stream_profile_list(sensor_type)
                         ir_profile = self._select_video_profile(
-                            ir_profiles, width, height, OBFormat.Y8, fps, "single IR"
+                            ir_profiles, width, height, OBFormat.Y8, fps, f"{ir_name} IR"
                         ) if ir_profiles else None
                         if ir_profile:
                             self.config.enable_stream(ir_profile)
-                            self.active_stream_profiles["ir"] = self._profile_summary(
-                                ir_profile
+                            self.active_stream_profiles[f"ir_{ir_name}"] = (
+                                self._profile_summary(ir_profile)
                             )
-                            self.enabled_ir_streams.append("single")
+                            self.enabled_ir_streams.append(ir_name)
                             enabled_streams += 1
                     except Exception as e:
-                        logger.warning(f"Failed to enable single IR stream: {e}")
+                        logger.warning(f"Failed to enable {ir_name} IR stream: {e}")
+
+                if not self.enabled_ir_streams:
+                    single_ir_sensor = getattr(OBSensorType, "IR_SENSOR", None)
+                    if single_ir_sensor is not None:
+                        try:
+                            ir_profiles = self.pipeline.get_stream_profile_list(single_ir_sensor)
+                            ir_profile = self._select_video_profile(
+                                ir_profiles, width, height, OBFormat.Y8, fps, "single IR"
+                            ) if ir_profiles else None
+                            if ir_profile:
+                                self.config.enable_stream(ir_profile)
+                                self.active_stream_profiles["ir"] = self._profile_summary(
+                                    ir_profile
+                                )
+                                self.enabled_ir_streams.append("single")
+                                enabled_streams += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to enable single IR stream: {e}")
 
             if enabled_streams == 0:
                 self.last_error = "未找到可用的相机视频流"

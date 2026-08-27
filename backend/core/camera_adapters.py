@@ -234,6 +234,7 @@ class OrbbecCameraAdapter(CameraAdapter):
             fps=int(fps),
             params_file=params_file,
             device_id=raw_id,
+            enable_infrared=bool(kwargs.get("enable_infrared", True)),
         )
         self.last_error = "" if connected else str(getattr(self.manager, "last_error", "连接 Orbbec 相机失败"))
         source_info = dict(self.manager.get_device_info() or {})

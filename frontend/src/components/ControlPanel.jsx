@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, Skeleton, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Tabs, Tag, Typography } from 'antd';
 import Anthropometry from './Anthropometry';
 import CameraConnection from './CameraConnection';
 import CompletionPanel from './CompletionPanel';
 import ConditionRunner from './ConditionRunner';
+import DualCaptureWorkspace from './DualCaptureWorkspace';
 import SubjectSetup from './SubjectSetup';
 import { resolveSelectedCondition } from '../protocol/protocolUtils.mjs';
 import './ControlPanel.css';
@@ -23,7 +24,7 @@ function ControlPanel({
   busyAction,
   actions
 }) {
-  const [activeTab, setActiveTab] = useState('subject');
+  const [activeTab, setActiveTab] = useState('dual');
   const [selectedConditionId, setSelectedConditionId] = useState('');
   const previousSubject = useRef('');
   const conditions = protocolState?.conditions || [];
@@ -56,6 +57,11 @@ function ControlPanel({
   }, [actions.selectPreviewCondition, protocolState?.subject_id, selectedCondition?.condition_id]);
 
   const tabs = [
+    {
+      key: 'dual',
+      label: '双机 8 角度',
+      children: <DualCaptureWorkspace cameraStatus={cameraStatus} state={actions.dualSessionState} busyAction={busyAction} selectedOutputDirectory={actions.selectedOutputDirectory} onChooseOutputDirectory={actions.selectOutputDirectory} onCreate={actions.createDualSession} onCapture={actions.captureDualGroup} onStartNext={actions.startNextDualSubject} />
+    },
     {
       key: 'subject',
       label: '1 受试者',
@@ -104,6 +110,24 @@ function ControlPanel({
       children: <CompletionPanel state={protocolState} report={actions.completionReport} busyAction={busyAction} onComplete={actions.completeSubject} />
     }
   ];
+  const renderedTabs = catalog.profiles.length
+    ? tabs
+    : [
+      tabs[0],
+      {
+        key: 'legacy-unavailable',
+        label: '旧协议',
+        children: (
+          <Alert
+            type={protocolError ? 'error' : 'warning'}
+            showIcon
+            message="旧版采集协议尚不可用"
+            description={protocolError || '服务端尚未返回 protocol_catalog。双机八角度采集不受此影响；如需使用旧协议，请确认后端已升级后刷新。'}
+            action={<Button size="small" onClick={actions.refreshProtocol}>刷新协议</Button>}
+          />
+        )
+      }
+    ];
 
   return (
     <div className="control-panel">
@@ -139,25 +163,16 @@ function ControlPanel({
             description="请停止所有写操作并重启采集服务；重启时会根据 sidecar 和哈希清单自动恢复。"
           />
         )}
-        {protocolLoading && !catalog.profiles.length ? (
-          <Skeleton active paragraph={{ rows: 6 }} aria-label="正在加载采集协议" />
-        ) : !catalog.profiles.length ? (
-          <Alert
-            type={protocolError ? 'error' : 'warning'}
-            showIcon
-            message="采集协议尚不可用"
-            description={protocolError || '服务端尚未返回 protocol_catalog。请确认后端已升级，然后刷新。'}
-            action={<Button size="small" onClick={actions.refreshProtocol}>刷新协议</Button>}
-          />
-        ) : (
-          <Tabs
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            items={tabs}
-            destroyOnHidden={false}
-            className="protocol-tabs"
-          />
+        {protocolLoading && !catalog.profiles.length && activeTab === 'dual' && (
+          <Alert type="info" showIcon message="正在加载旧版协议" description="双机八角度任务可以直接使用，无需等待旧版协议加载完成。" />
         )}
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={renderedTabs}
+          destroyOnHidden={false}
+          className="protocol-tabs"
+        />
       </Card>
     </div>
   );

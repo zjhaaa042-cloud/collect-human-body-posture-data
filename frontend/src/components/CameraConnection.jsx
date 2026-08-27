@@ -35,6 +35,9 @@ export default function CameraConnection({
   }, [requiredOptions, selectedDeviceId]);
 
   const cameraConnected = Boolean(cameraStatus.connected);
+  const connectedCodes = new Set((cameraStatus.connected_cameras || []).map((item) => item.device?.camera_code));
+  const selectedOption = options.find((option) => option.value === selectedDeviceId);
+  const selectedIsConnected = Boolean(selectedOption?.cameraCode && connectedCodes.has(selectedOption.cameraCode));
   const cameraBusy = Boolean(isConnecting || isDisconnecting);
   const requiredName = requiredCameraCode === 'CD435I' ? 'Intel RealSense D435i' : 'Orbbec Gemini 336L';
 
@@ -58,7 +61,7 @@ export default function CameraConnection({
       )}
       <div className="camera-device-summary">
         <Text strong>{cameraStatus.device?.name || '尚未连接设备'}</Text>
-        <Text type="secondary">{cameraStatus.message || '等待摄像头状态'}</Text>
+        <Text type="secondary">{cameraStatus.dual_ready ? 'Gemini 与 D435i 均已连接，可进行双机采集' : (cameraStatus.message || '可依次连接两台摄像头')}</Text>
       </div>
       <div className="camera-device-field">
         <label className="field-label" htmlFor="camera-device">可用摄像头</label>
@@ -70,12 +73,12 @@ export default function CameraConnection({
           value={selectedDeviceId || undefined}
           options={requiredOptions}
           onChange={setSelectedDeviceId}
-          disabled={!connected || cameraConnected || cameraBusy || !requiredOptions.length}
+          disabled={!connected || cameraBusy || !requiredOptions.length}
           notFoundContent={connected ? '未检测到可选摄像头' : '采集服务未连接'}
         />
       </div>
       <Space.Compact block className="camera-actions">
-        <Button type="primary" loading={isConnecting} disabled={!connected || cameraConnected || cameraBusy || !requiredOptions.length} onClick={() => onConnect(selectedDeviceId)}>连接所选设备</Button>
+        <Button type="primary" loading={isConnecting} disabled={!connected || selectedIsConnected || cameraBusy || !requiredOptions.length} onClick={() => onConnect(selectedDeviceId)}>{selectedIsConnected ? '该设备已连接' : '连接所选设备'}</Button>
         <Button loading={isDisconnecting} disabled={!connected || !cameraConnected || cameraBusy} onClick={onDisconnect}>断开</Button>
         <Tooltip title="刷新摄像头状态">
           <Button icon={<ReloadOutlined />} disabled={!connected || cameraBusy} onClick={onRefresh} aria-label="刷新摄像头状态" />

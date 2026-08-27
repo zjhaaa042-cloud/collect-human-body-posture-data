@@ -58,6 +58,28 @@ const DistanceIndicator = ({ distanceInfo }) => {
   );
 };
 
+const imageSource = (value) => value ? `data:image/jpeg;base64,${value}` : null;
+
+const CameraPreview = ({ cameraCode, preview, placeholderText, isCapturing }) => {
+  const cameraName = cameraCode === 'CD435I' ? 'D435i' : 'Gemini 336L';
+  const colorSrc = imageSource(preview?.color);
+  const depthSrc = imageSource(preview?.depth);
+  return (
+    <section className="camera-preview-group" aria-label={`${cameraName} 实时预览`}>
+      <div className="camera-preview-title"><Text strong>{cameraName}</Text><Tag color={preview?.available ? 'success' : 'default'}>{preview?.available ? '实时' : '无画面'}</Tag></div>
+      <div className="preview-window">
+        <div className="preview-label"><EyeOutlined /> RGB 彩色画面</div>
+        {colorSrc ? <img src={colorSrc} alt={`${cameraName} RGB 彩色预览`} className="preview-image" /> : <div className="preview-placeholder"><VideoCameraOutlined /><Text type="secondary">{placeholderText}</Text></div>}
+        {isCapturing && <div className="capture-overlay" role="status" aria-live="assertive"><div className="capture-indicator" /><Text className="capture-text">双机采集中...</Text></div>}
+      </div>
+      <div className="preview-window">
+        <div className="preview-label"><EyeOutlined /> 深度画面</div>
+        {depthSrc ? <img src={depthSrc} alt={`${cameraName} 深度预览`} className="preview-image" /> : <div className="preview-placeholder"><VideoCameraOutlined /><Text type="secondary">{placeholderText}</Text></div>}
+      </div>
+    </section>
+  );
+};
+
 const PreviewPanel = ({ previewData, previewStatus, distanceInfo, isCapturing, cameraStatus }) => {
   const panelRef = useRef(null);
 
@@ -70,13 +92,9 @@ const PreviewPanel = ({ previewData, previewStatus, distanceInfo, isCapturing, c
     }
   }, []);
 
-  const colorSrc = previewData?.color
-    ? `data:image/jpeg;base64,${previewData.color}`
-    : null;
-
-  const depthSrc = previewData?.depth
-    ? `data:image/jpeg;base64,${previewData.depth}`
-    : null;
+  const dualPreviews = previewData?.cameras;
+  const colorSrc = imageSource(previewData?.color);
+  const depthSrc = imageSource(previewData?.depth);
   const cameraConnected = Boolean(cameraStatus?.connected);
   const placeholderText = previewStatus === 'connecting'
     ? '正在连接摄像头并等待首帧...'
@@ -109,41 +127,15 @@ const PreviewPanel = ({ previewData, previewStatus, distanceInfo, isCapturing, c
         className="preview-card"
         variant="borderless"
       >
-        <div className="preview-container">
-          <div className="preview-window">
-            <div className="preview-label">
-              <EyeOutlined /> RGB 彩色画面
-            </div>
-            {colorSrc ? (
-              <img src={colorSrc} alt="RGB 彩色预览" className="preview-image" />
-            ) : (
-              <div className="preview-placeholder">
-                <VideoCameraOutlined />
-                <Text type="secondary">{placeholderText}</Text>
-              </div>
-            )}
-            {isCapturing && (
-              <div className="capture-overlay" role="status" aria-live="assertive">
-                <div className="capture-indicator" />
-                <Text className="capture-text">采集中...</Text>
-              </div>
-            )}
+        {dualPreviews ? (
+          <div className="dual-preview-container">
+            <CameraPreview cameraCode="C336L" preview={dualPreviews.C336L} placeholderText={placeholderText} isCapturing={isCapturing} />
+            <CameraPreview cameraCode="CD435I" preview={dualPreviews.CD435I} placeholderText={placeholderText} isCapturing={isCapturing} />
           </div>
-
-          <div className="preview-window">
-            <div className="preview-label">
-              <EyeOutlined /> 深度画面
-            </div>
-            {depthSrc ? (
-              <img src={depthSrc} alt="深度预览" className="preview-image" />
-            ) : (
-              <div className="preview-placeholder">
-                <VideoCameraOutlined />
-                <Text type="secondary">{placeholderText}</Text>
-              </div>
-            )}
-          </div>
-        </div>
+        ) : <div className="preview-container">
+          <div className="preview-window"><div className="preview-label"><EyeOutlined /> RGB 彩色画面</div>{colorSrc ? <img src={colorSrc} alt="RGB 彩色预览" className="preview-image" /> : <div className="preview-placeholder"><VideoCameraOutlined /><Text type="secondary">{placeholderText}</Text></div>}</div>
+          <div className="preview-window"><div className="preview-label"><EyeOutlined /> 深度画面</div>{depthSrc ? <img src={depthSrc} alt="深度预览" className="preview-image" /> : <div className="preview-placeholder"><VideoCameraOutlined /><Text type="secondary">{placeholderText}</Text></div>}</div>
+        </div>}
 
         <DistanceIndicator distanceInfo={distanceInfo} />
       </Card>

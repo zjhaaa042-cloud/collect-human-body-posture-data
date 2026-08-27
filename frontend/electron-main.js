@@ -176,6 +176,15 @@ ipcMain.handle('get-ws-token', () => {
   return '';
 });
 
+ipcMain.handle('select-output-directory', async () => {
+  if (!mainWindow) return '';
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '选择双机采集数据输出文件夹',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  return result.canceled ? '' : (result.filePaths[0] || '');
+});
+
 ipcMain.handle('close-window', () => {
   if (mainWindow) {
     mainWindow.close();

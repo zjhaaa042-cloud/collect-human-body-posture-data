@@ -1,26 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CameraOutlined, SwapOutlined } from '@ant-design/icons';
+import { CameraOutlined } from '@ant-design/icons';
 import { Alert, Button, Empty, Progress, Tag, Typography } from 'antd';
-import CaptureConfirmations from './CaptureConfirmations';
+import ConditionReadyCheck from './ConditionReadyCheck';
 import CaptureFeedback from './CaptureFeedback';
 import ConditionList from './ConditionList';
 import ConditionDetails from './ConditionDetails';
 import ConditionInstructions from './ConditionInstructions';
 import ReviewPanel from './ReviewPanel';
 import RetakeDialog from './RetakeDialog';
+import ReviewQueue from './ReviewQueue';
 import { conditionLabel, getReviewContext, inferCameraCode } from '../protocol/protocolUtils.mjs';
 import { conditionStatus, isCaptured } from '../protocol/conditionStatus.jsx';
+import { buildWorkflowGroups, workflowGroupFor } from '../protocol/workflowGroups.mjs';
 
 const { Text, Title } = Typography;
 
 const cameraName = (code) => code === 'CD435I' ? 'Intel RealSense D435i' : 'Orbbec Gemini 336L';
-const emptyConfirmations = () => ({
-  distance_marker: false,
-  pose_view_clothing: false,
-  full_body_visible: false,
-  repositioned: false
-});
-
 export default function ConditionRunner({
   state, catalog, cameraStatus, lastCaptureResult, reviewPreview, reviewPreviewLoading,
   reviewPreviewError, busyAction, selectedId, onCapture, onReview,
@@ -29,7 +24,7 @@ export default function ConditionRunner({
   const conditions = state?.conditions || [];
   const nextConditionId = state?.next_condition_id || conditions.find((condition) => !isCaptured(condition.status))?.condition_id;
   const [retakeOpen, setRetakeOpen] = useState(false);
-  const [confirmations, setConfirmations] = useState(emptyConfirmations);
+  const [confirmations, setConfirmations] = useState({});
   const requestedPreviewRef = useRef('');
   const effectiveSelectedId = selectedId || nextConditionId || conditions[0]?.condition_id || '';
 
@@ -41,8 +36,14 @@ export default function ConditionRunner({
   const confirmationNonce = selected?.confirmation_nonce || selected?.confirmations?.nonce || null;
   useEffect(() => {
     setRetakeOpen(false);
-    setConfirmations(emptyConfirmations());
+    setConfirmations({});
   }, [effectiveSelectedId, selected?.status, attemptCount, confirmationNonce]);
+  const selectedIndex = conditions.findIndex((condition) => condition.condition_id === selected?.condition_id);
+  const previousCondition = selectedIndex > 0 ? conditions[selectedIndex - 1] : null;
+  const groups = useMemo(() => buildWorkflowGroups(conditions), [conditions]);
+  const selectedGroup = workflowGroupFor(selected);
+  const group = groups.find((item) => item.id === selectedGroup.id);
+  const groupCaptured = group?.conditions.filter((item) => isCaptured(item.status)).length || 0;
   const next = conditions.find((condition) => condition.condition_id === nextConditionId);
   const progress = state?.progress || {};
   const captured = progress.captured ?? conditions.filter((item) => isCaptured(item.status)).length;
@@ -90,14 +91,14 @@ export default function ConditionRunner({
   const requiredConfirmationKeys = selected?.repeat_id > 1
     ? ['distance_marker', 'pose_view_clothing', 'full_body_visible', 'repositioned']
     : ['distance_marker', 'pose_view_clothing', 'full_body_visible'];
-  const allConfirmed = requiredConfirmationKeys.every((key) => confirmations[key]);
+  const allConfirmed = requiredConfirmationKeys.every((key) => confirmations[key] === true);
   const confirmationPayload = () => ({
     ...Object.fromEntries(requiredConfirmationKeys.map((key) => [key, confirmations[key]])),
     ...(confirmationNonce ? { nonce: confirmationNonce } : {})
   });
   const submitCapture = (metadata = {}) => {
     const sent = onCapture(selected.condition_id, confirmationPayload(), metadata);
-    if (sent !== false) setConfirmations(emptyConfirmations());
+    if (sent !== false) setConfirmations({});
     return sent;
   };
 
@@ -123,6 +124,13 @@ export default function ConditionRunner({
         <Text strong className="protocol-progress-count">{captured}/{expected}</Text>
       </div>
       <Progress percent={Math.min(Math.max(percent, 0), 100)} status={percent >= 100 ? 'success' : 'active'} />
+      <div className="workflow-group-summary" aria-label="当前采集组进度">
+        <Text type="secondary">当前任务组</Text>
+        <Text strong>{selectedGroup.title}</Text>
+        <Text type="secondary">{groupCaptured}/{group?.conditions.length || 0} · {selectedGroup.description}</Text>
+      </div>
+
+      <ReviewQueue conditions={conditions} selectedId={selected?.condition_id} onSelect={onSelect} />
 
       <div className="condition-focus-card" aria-live="polite">
         <div className="condition-focus-header">
@@ -134,9 +142,6 @@ export default function ConditionRunner({
         </div>
         <ConditionDetails condition={selected} />
         <ConditionInstructions condition={selected} catalog={catalog} />
-        {selected?.repeat_id > 1 && (
-          <Alert type="warning" showIcon icon={<SwapOutlined />} message="独立重新站位" description="请受试者完全离开脚位标记，再重新进入、确认站位和全身入框。" />
-        )}
         {!reviewContext.required && !reconciliationRequired && <Alert
           type={cameraMismatch ? 'error' : 'info'}
           showIcon
@@ -163,10 +168,11 @@ export default function ConditionRunner({
           />
         ) : <>
         <CaptureFeedback condition={selected} result={lastCaptureResult} />
-        <CaptureConfirmations
-          repeatId={selected?.repeat_id}
-          values={confirmations}
-          onChange={(key, checked) => setConfirmations((value) => ({ ...value, [key]: checked }))}
+        <ConditionReadyCheck
+          condition={selected}
+          previousCondition={previousCondition}
+          value={allConfirmed}
+          onChange={setConfirmations}
         />
         {!confirmationNonce && <Text type="warning" role="status">兼容模式：服务端暂未返回 confirmation_nonce；新版服务端会要求刷新状态后重新确认。</Text>}
         <Button
@@ -183,7 +189,7 @@ export default function ConditionRunner({
           {isCaptured(selected?.status) ? '填写原因后重采此已通过条件' : '采集此条件的 5 帧 burst'}
         </Button>
         {!cameraStatus?.connected && <Text type="danger">采集按钮已锁定：请先连接正确摄像头。</Text>}
-        {!allConfirmed && <Text type="warning">采集按钮已锁定：请逐项完成采集前人工确认。</Text>}
+        {!allConfirmed && <Text type="warning">采集按钮已锁定：请完成本条件的一次就位确认。</Text>}
         {outOfSequence && <Text type="warning">采集按钮已锁定：请先完成协议下一项；已完成条件仍可只追加补采。</Text>}
         </>}
         <RetakeDialog

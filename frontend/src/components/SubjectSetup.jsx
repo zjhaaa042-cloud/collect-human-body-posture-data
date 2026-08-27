@@ -39,7 +39,7 @@ export default function SubjectSetup({
       subject_id: values.subject_id.trim().toUpperCase(),
       profile_id: values.profile_id,
       metadata: {
-        operator_id: values.operator_id.trim(),
+        operator_id: values.operator_id?.trim() || '',
         age_band: values.age_band || '',
         sex_category: values.sex_category || '',
         clothing_size: values.clothing_size?.trim() || '',
@@ -73,9 +73,6 @@ export default function SubjectSetup({
                 disabled: profile.available === false
               }))}
             />
-          </Form.Item>
-          <Form.Item name="operator_id" label="操作员编号" rules={[{ required: true, message: '请输入操作员编号' }]}>
-            <Input placeholder="OP01" autoComplete="off" />
           </Form.Item>
           <Form.Item name="age_band" label="年龄段（可选）">
             <Select allowClear placeholder="未记录" options={AGE_OPTIONS} />
