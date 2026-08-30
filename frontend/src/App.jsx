@@ -62,7 +62,7 @@ function AppContent() {
               previewData={collector.previewData}
               previewStatus={collector.previewStatus}
               distanceInfo={collector.distanceInfo}
-              isCapturing={collector.busyAction === 'capture'}
+              isCapturing={['capture', 'capture-dual'].includes(collector.busyAction)}
               cameraStatus={collector.cameraStatus}
             />
           </section>
@@ -87,8 +87,8 @@ function AppContent() {
         <StatusBar
           connected={collector.connected}
           cameraConnected={collector.cameraStatus?.connected}
-          subjectId={collector.protocolState?.subject_id}
-          progress={collector.protocolState?.progress}
+          subjectId={collector.dualSessionState?.subject_id}
+          progress={collector.dualSessionState?.progress || { captured: 0, expected: 8 }}
         />
       </Footer>
       <BackendDiagnostic

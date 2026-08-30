@@ -79,7 +79,7 @@ export default function CameraConnection({
       </div>
       <Space.Compact block className="camera-actions">
         <Button type="primary" loading={isConnecting} disabled={!connected || selectedIsConnected || cameraBusy || !requiredOptions.length} onClick={() => onConnect(selectedDeviceId)}>{selectedIsConnected ? '该设备已连接' : '连接所选设备'}</Button>
-        <Button loading={isDisconnecting} disabled={!connected || !cameraConnected || cameraBusy} onClick={onDisconnect}>断开</Button>
+        <Button loading={isDisconnecting} disabled={!connected || !(cameraConnected || connectedCodes.size) || cameraBusy} onClick={onDisconnect}>全部断开</Button>
         <Tooltip title="刷新摄像头状态">
           <Button icon={<ReloadOutlined />} disabled={!connected || cameraBusy} onClick={onRefresh} aria-label="刷新摄像头状态" />
         </Tooltip>

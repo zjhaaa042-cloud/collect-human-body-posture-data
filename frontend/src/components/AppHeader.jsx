@@ -11,7 +11,7 @@ export default function AppHeader({ onOpenDiagnostics, onExit }) {
         <div className="logo-icon" aria-hidden="true"><AimOutlined /></div>
         <div className="logo-copy">
           <Title level={1} className="logo-text">RealAnthro 采集工作台</Title>
-          <Text className="logo-subtitle">Protocol-driven RGB-D acquisition</Text>
+          <Text className="logo-subtitle">Dual-camera eight-angle RGB-D acquisition</Text>
         </div>
       </div>
       <Space size={8}>

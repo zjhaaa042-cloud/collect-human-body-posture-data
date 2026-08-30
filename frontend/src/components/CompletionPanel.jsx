@@ -12,12 +12,12 @@ const asList = (value) => {
 
 export default function CompletionPanel({ state, report: returnedReport, busyAction, onComplete }) {
   if (!state?.subject_id) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请先选择受试者，系统才能计算完成门禁" />;
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请先完成第 1 步受试者登记，系统才能计算完成门禁" />;
   }
 
   const progress = state.progress || {};
   const report = returnedReport || state.completion?.report || state.completion_report || {};
-  const missingConditions = asList(progress.missing_condition_ids || report.missing_condition_ids || progress.missing);
+  const missingConditions = asList(progress.missing_angle_ids || report.missing_angle_ids);
   const missingMeasurements = asList(state.anthropometry?.missing_required);
   const blockers = asList(state.completion?.blockers);
   const integrityErrors = asList(report.integrity_errors || state.completion?.integrity_errors);
@@ -44,7 +44,7 @@ export default function CompletionPanel({ state, report: returnedReport, busyAct
     || Boolean(state.completed_at || state.completion?.completed_at)
   );
   const allMissing = [
-    ...missingConditions.map((item) => `采集条件：${typeof item === 'string' ? item : item.condition_id || JSON.stringify(item)}`),
+    ...missingConditions.map((item) => `采集角度：${typeof item === 'string' ? item : item.yaw_deg || JSON.stringify(item)}`),
     ...missingMeasurements.map((item) => `人体测量：${typeof item === 'string' ? item : item.measurement_id || JSON.stringify(item)}`),
     ...blockers.map((item) => `门禁：${typeof item === 'string' ? item : item.message || JSON.stringify(item)}`),
     ...invalidConditions.map((item) => `完整性异常条件：${typeof item === 'string' ? item : item.condition_id || JSON.stringify(item)}`),
@@ -80,9 +80,9 @@ export default function CompletionPanel({ state, report: returnedReport, busyAct
           {canComplete ? '允许完成' : '已锁定'}
         </Tag>
       </div>
-      <Paragraph type="secondary">只有全部协议条件成功落盘、M01–M13 必填测量完成且服务端检查通过，才允许结束该受试者任务。</Paragraph>
+      <Paragraph type="secondary">只有双机八个角度全部成功落盘、M01–M13 必填测量完成且服务端检查通过，才允许结束该受试者任务。</Paragraph>
       <div className="gate-summary">
-        <div><Text type="secondary">条件采集</Text><strong>{progress.captured ?? 0}/{progress.expected ?? 0}</strong></div>
+        <div><Text type="secondary">双机八角度</Text><strong>{progress.captured ?? 0}/{progress.expected ?? 8}</strong></div>
         <div><Text type="secondary">必填测量</Text><strong>{measurementsComplete ? '已完成' : '未完成'}</strong></div>
         <div><Text type="secondary">受试者状态</Text><strong>{state.status || 'IN_PROGRESS'}</strong></div>
       </div>

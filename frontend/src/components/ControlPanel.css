@@ -141,6 +141,11 @@
   margin-top: 12px;
 }
 
+.subject-existing-actions,
+.subject-form > .ant-space {
+  margin-top: 12px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -273,6 +278,13 @@
   color: var(--primary-dark);
   font-size: 28px;
   font-variant-numeric: tabular-nums;
+}
+
+.angle-distance-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .dual-angle-list {

@@ -17,7 +17,7 @@ export default function StatusBar({ connected, cameraConnected, subjectId, progr
         </Tag>
         <span className="status-item">
           <SaveOutlined />
-          <Text type="secondary">协议进度 <Text strong className="accent-number">{progress.captured ?? 0}/{progress.expected ?? 0}</Text></Text>
+          <Text type="secondary">八角度进度 <Text strong className="accent-number">{progress.captured ?? 0}/{progress.expected ?? 8}</Text></Text>
         </span>
       </Space>
       <Space size="middle" wrap>

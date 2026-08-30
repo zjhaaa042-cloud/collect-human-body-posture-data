@@ -2631,16 +2631,43 @@ class WebSocketServer:
         if store is None or not subject_id:
             return {"active": False, "angles": []}
         state = store.get_session(subject_id)
-        angles = list(state.get("angles", {}).values())
+        angles = sorted(
+            state.get("angles", {}).values(), key=lambda item: int(item.get("yaw_deg", 0))
+        )
         captured = sum(item.get("status") == "CAPTURED" for item in angles)
+        anthropometry = dict(state.get("anthropometry") or {})
+        blockers = []
+        if captured < len(angles):
+            blockers.append(f"双机八角度尚未完成（{captured}/{len(angles)}）")
+        if anthropometry.get("complete") is not True:
+            blockers.append("M01–M13 必填人体测量尚未完成")
+        completed = str(state.get("status") or "").upper() == "COMPLETE"
         return {
             "active": True,
             "subject_id": subject_id,
+            "status": state.get("status", "ACTIVE"),
+            "created_at": state.get("created_at"),
+            "completed_at": state.get("completed_at"),
+            "output_directory": state.get("output_directory") or str(store.output_directory),
             "output_root": state.get("output_root"),
             "clothing_note": state.get("clothing_note", ""),
             "target_distance_mm": state.get("target_distance_mm"),
             "angles": angles,
-            "progress": {"captured": captured, "expected": len(angles)},
+            "progress": {
+                "captured": captured,
+                "expected": len(angles),
+                "missing": len(angles) - captured,
+                "percent": round(captured * 100.0 / len(angles), 1) if angles else 0.0,
+            },
+            "anthropometry": anthropometry,
+            "completion": {
+                **dict(state.get("completion") or {}),
+                "can_complete": not blockers and not completed,
+                "completed": completed,
+                "completed_at": state.get("completed_at"),
+                "status": "COMPLETE" if completed else "INCOMPLETE",
+                "blockers": [] if completed else blockers,
+            },
             "next_yaw_deg": next(
                 (item.get("yaw_deg") for item in angles if item.get("status") != "CAPTURED"),
                 None,
@@ -2668,7 +2695,63 @@ class WebSocketServer:
         self.dual_active_subject_id = subject_id
         result = {"success": True, "state": self._dual_session_state()}
         await self._emit_protocol_message(websocket, {
-            "type": "dual_session_state", "data": result["state"],
+            "type": "dual_session_state", "data": {**result["state"], "event": "created"},
+        })
+        return result
+
+    async def _open_dual_session(self, websocket, data: dict):
+        subject_id = validate_subject_id(str(data.get("subject_id") or "").strip().upper())
+        output_path = str(data.get("output_path") or "").strip()
+        if not output_path:
+            raise ValueError("请选择原任务的数据输出文件夹")
+        store = await asyncio.to_thread(DualSessionStore, output_path)
+        await asyncio.to_thread(store.get_session, subject_id)
+        self.dual_session_store = store
+        self.dual_active_subject_id = subject_id
+        state = self._dual_session_state()
+        await self._emit_protocol_message(websocket, {
+            "type": "dual_session_state", "data": {**state, "event": "opened"},
+        })
+        return state
+
+    async def _save_dual_anthropometry(self, websocket, data: dict):
+        store = getattr(self, "dual_session_store", None)
+        subject_id = str(data.get("subject_id") or getattr(self, "dual_active_subject_id", ""))
+        if store is None or not subject_id:
+            raise ValueError("请先登记或继续一个双机受试者任务")
+        records = data.get("records")
+        if not isinstance(records, list):
+            raise ValueError("records 必须是测量记录数组")
+        definitions = [asdict(item) for item in measurement_definitions()]
+        await asyncio.to_thread(
+            store.save_anthropometry, subject_id, records, definitions
+        )
+        state = self._dual_session_state()
+        result = {"success": True, "state": state, "message": "人体测量已保存"}
+        await self._emit_protocol_message(websocket, {
+            "type": "dual_anthropometry_result", "data": result,
+        })
+        return result
+
+    async def _complete_dual_session(self, websocket, data: dict):
+        store = getattr(self, "dual_session_store", None)
+        subject_id = str(data.get("subject_id") or getattr(self, "dual_active_subject_id", ""))
+        if store is None or not subject_id:
+            raise ValueError("请先登记或继续一个双机受试者任务")
+        await asyncio.to_thread(store.complete_session, subject_id)
+        state = self._dual_session_state()
+        result = {
+            "success": True,
+            "state": state,
+            "report": {
+                "status": "COMPLETE",
+                "ready_to_complete": True,
+                "integrity_errors": [],
+            },
+            "message": "受试者双机八角度任务已完成",
+        }
+        await self._emit_protocol_message(websocket, {
+            "type": "dual_completion_result", "data": result,
         })
         return result
 
@@ -2726,7 +2809,7 @@ class WebSocketServer:
             "type": "dual_capture_result", "data": result,
         })
         await self._emit_protocol_message(websocket, {
-            "type": "dual_session_state", "data": result["state"],
+            "type": "dual_session_state", "data": {**result["state"], "event": "updated"},
         })
         return result
 
@@ -3265,7 +3348,14 @@ class WebSocketServer:
                     status = None
                 else:
                     operation_error = ""
-                    await asyncio.to_thread(self.active_camera_adapter.disconnect)
+                    connected_adapters = [
+                        candidate
+                        for candidate in self.camera_registry.adapters.values()
+                        if candidate.get_status().get("connected")
+                    ]
+                    for candidate in connected_adapters:
+                        await asyncio.to_thread(candidate.disconnect)
+                    self.active_camera_adapter = self.camera_registry.adapters["orbbec"]
                     self.depth_analyzer.reset()
                     self._last_color_preview = ""
                     self._last_depth_preview = ""
@@ -3483,12 +3573,33 @@ class WebSocketServer:
                 await websocket.send(json.dumps({
                     "type": "dual_session_state", "data": {"success": False, "error": str(exc)},
                 }, ensure_ascii=False))
+        elif msg_type == "open_dual_session":
+            try:
+                await self._open_dual_session(websocket, data)
+            except Exception as exc:
+                await websocket.send(json.dumps({
+                    "type": "dual_session_state", "data": {"success": False, "error": str(exc)},
+                }, ensure_ascii=False))
         elif msg_type == "capture_dual_group":
             try:
                 await self._capture_dual_group(websocket, data)
             except Exception as exc:
                 await websocket.send(json.dumps({
                     "type": "dual_capture_result", "data": {"success": False, "error": str(exc)},
+                }, ensure_ascii=False))
+        elif msg_type == "save_dual_anthropometry":
+            try:
+                await self._save_dual_anthropometry(websocket, data)
+            except Exception as exc:
+                await websocket.send(json.dumps({
+                    "type": "dual_anthropometry_result", "data": {"success": False, "error": str(exc)},
+                }, ensure_ascii=False))
+        elif msg_type == "complete_dual_session":
+            try:
+                await self._complete_dual_session(websocket, data)
+            except Exception as exc:
+                await websocket.send(json.dumps({
+                    "type": "dual_completion_result", "data": {"success": False, "error": str(exc)},
                 }, ensure_ascii=False))
         elif msg_type == "create_protocol_subject":
             await self._create_protocol_subject(websocket, data)
@@ -3980,6 +4091,7 @@ class WebSocketServer:
                 height=self.settings.camera.height,
                 fps=self.settings.camera.fps,
                 params_file=self.settings.camera.params_file,
+                enable_infrared=False,
             )
 
             self._ws_server = await websockets.serve(

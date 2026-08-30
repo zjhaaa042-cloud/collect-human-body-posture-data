@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,7 @@ import cv2
 
 from backend.core.camera_adapters import CameraIntrinsicsData, FrameBundle
 from backend.core.dual_session_store import DualSessionStore
+from backend.protocol import measurement_definitions
 from backend.storage.ply_writer import PLYWriter
 
 
@@ -55,6 +57,37 @@ class DualSessionStoreTests(unittest.TestCase):
             self.assertGreater(len(points), 0)
             self.assertEqual(colors.shape[1], 3)
             self.assertTrue(np.array_equal(colors[0], np.array([255, 0, 0], dtype=np.uint8)))
+
+    def test_eight_angles_measurements_and_completion_share_one_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = DualSessionStore(Path(directory))
+            store.create_session("S0002", clothing_note="长袖", target_distance_mm=2500)
+            for yaw in range(0, 360, 45):
+                store.commit_group(
+                    "S0002", yaw,
+                    [frame(i) for i in range(5)],
+                    [frame(i) for i in range(5)],
+                    audit={"max_host_timestamp_skew_ms": 10.0},
+                    metadata={"distance_mm": 2500},
+                )
+            definitions = [asdict(item) for item in measurement_definitions()]
+            records = []
+            for definition in definitions:
+                if not definition["required"]:
+                    continue
+                for field_name in definition["field_names"]:
+                    records.append({
+                        "measurement_id": definition["measurement_id"],
+                        "field_name": field_name,
+                        "m1": 100.0,
+                        "m2": 100.0,
+                    })
+            measured = store.save_anthropometry("S0002", records, definitions)
+            self.assertTrue(measured["anthropometry"]["complete"])
+            self.assertTrue(measured["completion"]["can_complete"])
+            completed = store.complete_session("S0002")
+            self.assertEqual(completed["status"], "COMPLETE")
+            self.assertTrue(completed["completion"]["completed"])
 
 
 if __name__ == "__main__":

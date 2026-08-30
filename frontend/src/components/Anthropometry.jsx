@@ -47,7 +47,7 @@ export default function Anthropometry({ definitions, state, busyAction, onSave }
   };
 
   if (!state?.subject_id) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请先选择受试者，再录入人体测量" />;
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请先完成第 1 步受试者登记，再录入人体测量" />;
   }
   if (!definitions.length) {
     return <Alert type="warning" showIcon message="人体测量字典尚未返回" description="请刷新协议目录；旧版后端不会开放测量保存。" />;

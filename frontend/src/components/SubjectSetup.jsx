@@ -1,123 +1,109 @@
-import React, { useEffect } from 'react';
-import { ReloadOutlined, UserAddOutlined } from '@ant-design/icons';
-import { Alert, Button, Checkbox, Divider, Form, Input, Select, Space, Typography } from 'antd';
-import { subjectOptions } from '../protocol/protocolUtils.mjs';
+import React, { useEffect, useState } from 'react';
+import { FolderOpenOutlined, LoginOutlined, UserAddOutlined } from '@ant-design/icons';
+import { Alert, Button, Form, Input, InputNumber, Space, Typography } from 'antd';
 
 const { Text, Title } = Typography;
 
-const AGE_OPTIONS = ['18–24', '25–34', '35–44', '45–54', '55–64', '65+']
-  .map((value) => ({ value, label: value }));
-const SEX_OPTIONS = [
-  { value: 'female', label: '女' },
-  { value: 'male', label: '男' },
-  { value: 'other', label: '其他' },
-  { value: 'undisclosed', label: '不透露' }
-];
+const parseSubjectNumber = (value) => {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  return Math.max(1, Math.min(9999, Number(digits) || 1));
+};
+
+export const formatSubjectId = (value) => `S${String(parseSubjectNumber(value)).padStart(4, '0')}`;
 
 export default function SubjectSetup({
-  profiles,
-  defaultProfileId,
-  subjects,
-  activeSubjectId,
+  activeState,
   busyAction,
+  selectedOutputDirectory,
+  onChooseOutputDirectory,
   onCreate,
-  onSelect,
-  onRefresh
+  onOpen,
+  onContinue,
+  onStartNew
 }) {
   const [form] = Form.useForm();
-  const profileId = Form.useWatch('profile_id', form);
-  const selectedProfile = profiles.find((profile) => profile.profile_id === profileId);
+  const [subjectInput, setSubjectInput] = useState('S0001');
+  const subjectNumber = parseSubjectNumber(subjectInput);
 
   useEffect(() => {
-    if (defaultProfileId && !form.getFieldValue('profile_id')) {
-      form.setFieldValue('profile_id', defaultProfileId);
-    }
-  }, [defaultProfileId, form]);
+    if (selectedOutputDirectory) form.setFieldValue('output_path', selectedOutputDirectory);
+  }, [form, selectedOutputDirectory]);
 
-  const createSubject = (values) => {
-    onCreate({
-      subject_id: values.subject_id.trim().toUpperCase(),
-      profile_id: values.profile_id,
-      metadata: {
-        operator_id: values.operator_id?.trim() || '',
-        age_band: values.age_band || '',
-        sex_category: values.sex_category || '',
-        clothing_size: values.clothing_size?.trim() || '',
-        consent_internal: values.consent_internal === true
-      }
+  useEffect(() => {
+    if (!activeState?.subject_id) return;
+    setSubjectInput(activeState.subject_id);
+    form.setFieldsValue({
+      output_path: activeState.output_directory,
+      clothing_note: activeState.clothing_note,
+      target_distance_mm: activeState.target_distance_mm
     });
+  }, [activeState?.subject_id, activeState?.output_directory, activeState?.clothing_note, activeState?.target_distance_mm, form]);
+
+  const chooseOutputDirectory = async () => {
+    const selected = await window.electronAPI?.selectOutputDirectory?.();
+    if (selected) form.setFieldValue('output_path', selected);
+    else onChooseOutputDirectory?.();
   };
+  const normalizeSubjectInput = () => setSubjectInput(formatSubjectId(subjectInput));
+  const changeSubjectNumber = (offset) => setSubjectInput(formatSubjectId(subjectNumber + offset));
+  const payload = (values) => ({ ...values, subject_id: formatSubjectId(subjectInput) });
+  const openExisting = async () => onOpen(payload(await form.validateFields(['output_path'])));
+  const startNew = () => {
+    const next = formatSubjectId(subjectNumber + 1);
+    onStartNew?.();
+    setSubjectInput(next);
+    form.resetFields();
+    if (selectedOutputDirectory) form.setFieldValue('output_path', selectedOutputDirectory);
+  };
+
+  if (activeState?.active) {
+    const captured = activeState.progress?.captured ?? 0;
+    return (
+      <section aria-labelledby="subject-heading">
+        <Title level={3} id="subject-heading">1. 受试者登记</Title>
+        <Alert
+          type={activeState.status === 'COMPLETE' ? 'success' : 'info'}
+          showIcon
+          message={`${activeState.subject_id} · ${activeState.status === 'COMPLETE' ? '任务已完成' : '任务进行中'}`}
+          description={`输出文件夹：${activeState.output_directory || activeState.output_root}；双机八角度进度：${captured}/8${activeState.clothing_note ? `；服装备注：${activeState.clothing_note}` : ''}`}
+        />
+        <Space wrap className="subject-existing-actions">
+          <Button type="primary" icon={<LoginOutlined />} onClick={onContinue}>
+            {captured < 8 ? '继续双机八角度采集' : '继续人体测量与完成'}
+          </Button>
+          <Button onClick={startNew}>登记下一位受试者</Button>
+        </Space>
+      </section>
+    );
+  }
 
   return (
     <section aria-labelledby="subject-heading">
       <Title level={3} id="subject-heading">1. 受试者登记</Title>
-      <Text type="secondary">受试者编号只使用匿名编号；当前阶段仅记录内部采集同意。</Text>
-      <Form form={form} layout="vertical" onFinish={createSubject} requiredMark="optional" className="subject-form">
-        <div className="form-grid">
-          <Form.Item
-            name="subject_id"
-            label="受试者编号"
-            rules={[
-              { required: true, message: '请输入受试者编号' },
-              { pattern: /^S\d{4}$/i, message: '格式必须为 S0001–S9999' }
-            ]}
-          >
-            <Input placeholder="S0001" autoComplete="off" maxLength={5} />
-          </Form.Item>
-          <Form.Item name="profile_id" label="采集协议" rules={[{ required: true, message: '请选择采集协议' }]}>
-            <Select
-              placeholder="选择协议"
-              options={profiles.map((profile) => ({
-                value: profile.profile_id,
-                label: `${profile.name} · ${profile.condition_count} 条件${profile.available === false ? ' · 当前不可用' : ''}`,
-                disabled: profile.available === false
-              }))}
-            />
-          </Form.Item>
-          <Form.Item name="age_band" label="年龄段（可选）">
-            <Select allowClear placeholder="未记录" options={AGE_OPTIONS} />
-          </Form.Item>
-          <Form.Item name="sex_category" label="性别类别（可选）">
-            <Select allowClear placeholder="未记录" options={SEX_OPTIONS} />
-          </Form.Item>
-          <Form.Item name="clothing_size" label="服装尺码（可选）">
-            <Input placeholder="例如 L" autoComplete="off" />
-          </Form.Item>
-        </div>
-        {selectedProfile?.requires_lux && (
-          <Alert type="warning" showIcon message="此协议包含定量光照条件，需要照度计；当前设备条件下建议选择 Full-31 无照度计方案。" />
-        )}
-        <Form.Item
-          name="consent_internal"
-          valuePropName="checked"
-          rules={[{
-            validator: (_, checked) => checked
-              ? Promise.resolve()
-              : Promise.reject(new Error('请确认已取得受试者内部采集同意'))
-          }]}
-        >
-          <Checkbox>我已核对并取得受试者对本项目内部数据采集的明确同意</Checkbox>
+      <Text type="secondary">登记一次后，受试者编号、输出文件夹、服装备注和默认距离会直接用于第 2 步双机八角度采集。</Text>
+      <Form form={form} layout="vertical" onFinish={(values) => onCreate(payload(values))} requiredMark="optional" className="subject-form" initialValues={{ target_distance_mm: 2500 }}>
+        <Form.Item label="匿名受试者编号" required>
+          <Space.Compact block className="subject-number-picker">
+            <Button aria-label="选择上一位受试者" disabled={subjectNumber <= 1} onClick={() => changeSubjectNumber(-1)}>上一位</Button>
+            <Input aria-label="当前受试者编号" value={subjectInput} maxLength={5} onChange={(event) => setSubjectInput(event.target.value)} onBlur={normalizeSubjectInput} onPressEnter={normalizeSubjectInput} placeholder="S0001" />
+            <Button aria-label="选择下一位受试者" disabled={subjectNumber >= 9999} onClick={() => changeSubjectNumber(1)}>下一位</Button>
+          </Space.Compact>
+          <Text type="secondary" className="subject-number-hint">可直接输入 <code>S0008</code> 或 <code>8</code>，也可点击按钮切换。</Text>
         </Form.Item>
-        <Button type="primary" htmlType="submit" icon={<UserAddOutlined />} loading={busyAction === 'create-subject'}>
-          建立受试者任务
-        </Button>
+        <Form.Item name="output_path" label="数据输出文件夹" rules={[{ required: true, message: '请选择或输入任意可写 Windows 文件夹' }]}>
+          <Space.Compact block>
+            <Input aria-label="数据输出文件夹" prefix={<FolderOpenOutlined />} placeholder="例如 D:\\人体数据\\本次采集" autoComplete="off" />
+            <Button loading={busyAction === 'select-output-directory'} onClick={chooseOutputDirectory}>选择</Button>
+          </Space.Compact>
+        </Form.Item>
+        <Form.Item name="clothing_note" label="服装备注（可选）"><Input placeholder="例如：短袖、长裤、外套" maxLength={500} /></Form.Item>
+        <Form.Item name="target_distance_mm" label="默认距离 mm（可选，每个角度仍可修改）"><InputNumber min={250} max={6000} step={50} precision={0} style={{ width: '100%' }} /></Form.Item>
+        <Alert type="info" showIcon message="新建与继续不会混用数据" description="新建任务拒绝覆盖已有编号；如果该编号已经采集过，请点击“继续已有任务”。" />
+        <Space wrap>
+          <Button type="primary" htmlType="submit" icon={<UserAddOutlined />} loading={busyAction === 'create-dual-session'}>登记并建立任务</Button>
+          <Button icon={<LoginOutlined />} loading={busyAction === 'open-dual-session'} onClick={openExisting}>继续已有任务</Button>
+        </Space>
       </Form>
-
-      <Divider plain>继续已有任务</Divider>
-      <Space.Compact block>
-        <Select
-          aria-label="选择已有受试者"
-          showSearch
-          optionFilterProp="label"
-          placeholder={subjects.length ? '选择已有受试者' : '暂无已有任务'}
-          value={activeSubjectId || undefined}
-          options={subjectOptions(subjects)}
-          onChange={onSelect}
-          loading={busyAction === 'select-subject'}
-          notFoundContent="暂无受试者任务"
-        />
-        <Button icon={<ReloadOutlined />} onClick={onRefresh} aria-label="刷新受试者任务列表" />
-      </Space.Compact>
     </section>
   );
 }

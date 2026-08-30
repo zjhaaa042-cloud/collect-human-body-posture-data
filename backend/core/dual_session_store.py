@@ -40,10 +40,10 @@ _MODALITIES = {
 }
 _POINTCLOUD_STRIDE = 4
 _POINTCLOUD_MAX_DEPTH_MM = 6000.0
-_LAYOUT_README = """双机八角度采集数据说明（dual-rgbd-v2.1）
+_LAYOUT_README = """双机八角度采集数据说明（dual-rgbd-v2.2）
 
 每个受试者位于 subjects/<受试者编号>/。
-session_manifest.json：受试者、服装备注、距离和八个角度的采集进度。
+session_manifest.json：受试者登记信息、八个角度进度、人体测量与完成状态。
 angles/angle_000_front 等：一个角度一份目录；方向以 0 度正面为起点顺时针。
 capture_01_<UTC时间>：一次双机近同步采集；内含两台相机各 5 帧 RGB、原始/对齐深度、两类伪彩深度和 PLY 点云。
 capture_manifest.json：时间同步审计、每个文件的 SHA-256、距离及采集确认信息。
@@ -66,6 +66,7 @@ class DualSessionStore:
         root.mkdir(parents=True, exist_ok=True)
         if not root.is_dir():
             raise DualSessionStoreError("输出路径不是目录")
+        self.output_directory = root
         self.root = root / "body_posture_dual_v2"
         self.root.mkdir(parents=True, exist_ok=True)
         readme = self.root / "README_数据格式说明.txt"
@@ -127,16 +128,32 @@ class DualSessionStore:
         if target_distance_mm is not None and not 250 <= int(target_distance_mm) <= 6000:
             raise DualSessionStoreError("自定义距离必须在 250–6000 mm")
         state = {
-            "schema_version": "dual-rgbd-v2.1",
+            "schema_version": "dual-rgbd-v2.2",
             "layout_version": "readable-v1",
             "subject_id": subject_id,
+            "status": "ACTIVE",
             "created_at": self._now(),
+            "completed_at": None,
+            "output_directory": str(self.output_directory),
             "output_root": str(self.root),
             "clothing_note": note,
             "target_distance_mm": int(target_distance_mm) if target_distance_mm else None,
             "angles": {
                 f"V{angle:03d}": {"yaw_deg": angle, "status": "PENDING", "attempts": []}
                 for angle in DUAL_ANGLES
+            },
+            "anthropometry": {
+                "status": "MISSING",
+                "complete": False,
+                "saved_at": None,
+                "records": [],
+                "missing_required": [],
+            },
+            "completion": {
+                "can_complete": False,
+                "completed": False,
+                "completed_at": None,
+                "blockers": ["八个角度尚未全部采集", "必填人体测量尚未完成"],
             },
         }
         subject_dir.mkdir(parents=True)
@@ -149,7 +166,160 @@ class DualSessionStore:
         path = self._state_path(subject_id)
         if not path.exists():
             raise DualSessionStoreError("未找到双机任务")
-        return self._read_json(path)
+        state = self._read_json(path)
+        # Keep unfinished v2.0/v2.1 sessions usable after upgrading the app.
+        state.setdefault("status", "ACTIVE")
+        state.setdefault("completed_at", None)
+        state.setdefault("output_directory", str(Path(state.get("output_root", self.root)).parent))
+        state.setdefault("anthropometry", {
+            "status": "MISSING", "complete": False, "saved_at": None,
+            "records": [], "missing_required": [],
+        })
+        state.setdefault("completion", {
+            "can_complete": False, "completed": False, "completed_at": None,
+            "blockers": [],
+        })
+        return state
+
+    def save_anthropometry(
+        self,
+        subject_id: str,
+        records: Sequence[Mapping[str, Any]],
+        definitions: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Validate and atomically save the measurements for a dual session."""
+
+        state = self.get_session(subject_id)
+        if state.get("status") == "COMPLETE":
+            raise DualSessionStoreError("该受试者任务已完成，不能修改人体测量")
+        definition_map = {
+            str(item.get("measurement_id") or "").upper(): dict(item)
+            for item in definitions if isinstance(item, Mapping)
+        }
+        normalized: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for record in records:
+            if not isinstance(record, Mapping):
+                raise DualSessionStoreError("每条人体测量记录必须是对象")
+            measurement_id = str(record.get("measurement_id") or "").upper()
+            definition = definition_map.get(measurement_id)
+            if definition is None:
+                raise DualSessionStoreError(f"未知人体测量项目：{measurement_id}")
+            field_name = str(record.get("field_name") or "")
+            if field_name not in {str(item) for item in definition.get("field_names", [])}:
+                raise DualSessionStoreError(f"{measurement_id} 不包含字段 {field_name}")
+            key = (measurement_id, field_name)
+            if key in seen:
+                raise DualSessionStoreError(f"人体测量字段重复：{measurement_id}/{field_name}")
+            seen.add(key)
+            try:
+                m1 = float(record.get("m1"))
+                m2 = float(record.get("m2"))
+                m3_raw = record.get("m3")
+                m3 = float(m3_raw) if m3_raw not in {None, ""} else None
+            except (TypeError, ValueError) as exc:
+                raise DualSessionStoreError(f"{measurement_id}/{field_name} 的读数必须是数字") from exc
+            if m1 <= 0 or m2 <= 0 or (m3 is not None and m3 <= 0):
+                raise DualSessionStoreError(f"{measurement_id}/{field_name} 的读数必须大于 0")
+            threshold = definition.get("third_measurement_threshold")
+            if threshold is not None and abs(m1 - m2) > float(threshold) and m3 is None:
+                raise DualSessionStoreError(f"{measurement_id}/{field_name} 前两次差值超限，必须填写第三次")
+            item = {
+                "measurement_id": measurement_id,
+                "field_name": field_name,
+                "m1": m1,
+                "m2": m2,
+            }
+            if m3 is not None:
+                item["m3"] = m3
+            normalized.append(item)
+
+        missing_required = []
+        for measurement_id, definition in definition_map.items():
+            if not bool(definition.get("required")):
+                continue
+            for field_name in map(str, definition.get("field_names", [])):
+                if (measurement_id, field_name) not in seen:
+                    missing_required.append(f"{measurement_id}/{field_name}")
+        if missing_required:
+            raise DualSessionStoreError(
+                f"仍有 {len(missing_required)} 个必填人体测量字段未填写"
+            )
+
+        saved_at = self._now()
+        state["anthropometry"] = {
+            "status": "COMPLETE",
+            "complete": True,
+            "saved_at": saved_at,
+            "records": normalized,
+            "missing_required": [],
+        }
+        self._refresh_completion(state)
+        self._atomic_json(self._state_path(subject_id), state)
+        return state
+
+    def complete_session(self, subject_id: str) -> dict[str, Any]:
+        """Close a dual session after all eight angles and measurements exist."""
+
+        state = self.get_session(subject_id)
+        if state.get("status") == "COMPLETE":
+            return state
+        self._refresh_completion(state)
+        blockers = list(state["completion"].get("blockers") or [])
+        if blockers:
+            raise DualSessionStoreError("；".join(blockers))
+        subject_dir = self._subject_dir(subject_id)
+        for group in state.get("angles", {}).values():
+            attempts = group.get("attempts") or []
+            if not attempts:
+                raise DualSessionStoreError(f"{group.get('yaw_deg')}° 缺少已落盘采集记录")
+            attempt_dir = subject_dir / attempts[-1]["path"]
+            manifest = attempt_dir / (
+                "capture_manifest.json" if state.get("layout_version") == "readable-v1" else "capture.json"
+            )
+            if not attempt_dir.is_dir() or not manifest.is_file():
+                raise DualSessionStoreError(f"{group.get('yaw_deg')}° 采集目录或清单缺失")
+            capture_manifest = self._read_json(manifest)
+            for record in capture_manifest.get("files", []):
+                path = attempt_dir / str(record.get("path") or "")
+                expected_sha256 = str(record.get("sha256") or "")
+                if not path.is_file():
+                    raise DualSessionStoreError(
+                        f"{group.get('yaw_deg')}° 文件缺失：{record.get('path')}"
+                    )
+                if not expected_sha256 or self._sha256(path) != expected_sha256:
+                    raise DualSessionStoreError(
+                        f"{group.get('yaw_deg')}° 文件完整性校验失败：{record.get('path')}"
+                    )
+        completed_at = self._now()
+        state["status"] = "COMPLETE"
+        state["completed_at"] = completed_at
+        state["completion"] = {
+            "can_complete": False,
+            "completed": True,
+            "completed_at": completed_at,
+            "status": "COMPLETE",
+            "blockers": [],
+        }
+        self._atomic_json(self._state_path(subject_id), state)
+        return state
+
+    @staticmethod
+    def _refresh_completion(state: dict[str, Any]) -> None:
+        angles = list(state.get("angles", {}).values())
+        captured = sum(item.get("status") == "CAPTURED" for item in angles)
+        blockers = []
+        if captured < len(DUAL_ANGLES):
+            blockers.append(f"双机八角度尚未完成（{captured}/{len(DUAL_ANGLES)}）")
+        if state.get("anthropometry", {}).get("complete") is not True:
+            blockers.append("M01–M13 必填人体测量尚未完成")
+        state["completion"] = {
+            "can_complete": not blockers and state.get("status") != "COMPLETE",
+            "completed": state.get("status") == "COMPLETE",
+            "completed_at": state.get("completed_at"),
+            "status": "COMPLETE" if state.get("status") == "COMPLETE" else "INCOMPLETE",
+            "blockers": blockers,
+        }
 
     def commit_group(
         self,
@@ -222,6 +392,7 @@ class DualSessionStore:
             "captured_at": capture["captured_at"],
             "max_host_timestamp_skew_ms": audit.get("max_host_timestamp_skew_ms"),
         })
+        self._refresh_completion(state)
         self._atomic_json(self._state_path(subject_id), state)
         return {"attempt_id": attempt_id, "group_id": group_id, "state": state, "capture": capture}
 

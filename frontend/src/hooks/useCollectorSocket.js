@@ -9,6 +9,15 @@ const EMPTY_CAMERA = {
   message: '摄像头状态未知'
 };
 
+const ACTIVE_DUAL_SESSION_KEY = 'bodyCollectorActiveDualSession';
+const readActiveDualSession = () => {
+  try {
+    return JSON.parse(localStorage.getItem(ACTIVE_DUAL_SESSION_KEY) || 'null') || null;
+  } catch {
+    return null;
+  }
+};
+
 const normalizeReviewPreview = (payload = {}, fallback = {}) => {
   const source = payload.review_preview || payload.preview || payload;
   return {
@@ -25,6 +34,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
   const reviewPreviewRequestRef = useRef(null);
   const activeSubjectIdRef = useRef('');
   const selectedConditionIdRef = useRef('');
+  const activeDualSessionRef = useRef(readActiveDualSession());
   const [connected, setConnected] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [previewStatus, setPreviewStatus] = useState('disconnected');
@@ -111,6 +121,9 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           sendOn(socket, 'get_camera_status');
           sendOn(socket, 'get_protocol_catalog');
           sendOn(socket, 'get_protocol_subjects');
+          if (activeDualSessionRef.current?.subject_id && activeDualSessionRef.current?.output_path) {
+            sendOn(socket, 'open_dual_session', activeDualSessionRef.current);
+          }
           if (activeSubjectIdRef.current) {
             sendOn(socket, 'select_protocol_subject', {
               subject_id: activeSubjectIdRef.current
@@ -284,10 +297,17 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
         case 'dual_session_state':
           setBusyAction('');
           if (payload.success === false) {
-            message.error(payload.error || '双机任务创建失败');
+            message.error(payload.error || '双机任务创建或恢复失败');
           } else {
             setDualSessionState(payload);
-            message.success('双机八角度任务已创建');
+            const activeRecord = {
+              subject_id: payload.subject_id,
+              output_path: payload.output_directory || (payload.output_root ? payload.output_root.replace(/[\\/]body_posture_dual_v2$/, '') : '')
+            };
+            activeDualSessionRef.current = activeRecord;
+            localStorage.setItem(ACTIVE_DUAL_SESSION_KEY, JSON.stringify(activeRecord));
+            if (payload.event === 'created') message.success('受试者登记完成，已建立双机八角度任务');
+            if (payload.event === 'opened') message.success('已有双机八角度任务已恢复');
           }
           break;
         case 'dual_capture_result':
@@ -297,6 +317,25 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           } else {
             if (payload.state) setDualSessionState(payload.state);
             message.success(`${payload.yaw_deg}° 双机采集完成`);
+          }
+          break;
+        case 'dual_anthropometry_result':
+          setBusyAction('');
+          if (payload.success === false) {
+            message.error(payload.error || '人体测量保存失败');
+          } else {
+            if (payload.state) setDualSessionState(payload.state);
+            message.success(payload.message || '人体测量已保存');
+          }
+          break;
+        case 'dual_completion_result':
+          setBusyAction('');
+          if (payload.success === false) {
+            message.error(payload.error || '双机任务尚未满足完成条件');
+          } else {
+            if (payload.state) setDualSessionState(payload.state);
+            setCompletionReport(payload.report || null);
+            message.success(payload.message || '受试者采集已完成');
           }
           break;
         case 'error':
@@ -546,9 +585,13 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     subject_id: protocolState?.subject_id
   }, 'completion'), [protocolState?.subject_id, send]);
   const createDualSession = useCallback((payload) => send('create_dual_session', payload, 'create-dual-session'), [send]);
+  const openDualSession = useCallback((payload) => send('open_dual_session', payload, 'open-dual-session'), [send]);
   const selectOutputDirectory = useCallback(() => send('select_output_directory', {}, 'select-output-directory'), [send]);
   const startNextDualSubject = useCallback(() => {
     setDualSessionState(null);
+    setCompletionReport(null);
+    activeDualSessionRef.current = null;
+    localStorage.removeItem(ACTIVE_DUAL_SESSION_KEY);
   }, []);
   const captureDualGroup = useCallback((yawDeg, distanceMm) => send('capture_dual_group', {
     subject_id: dualSessionState?.subject_id,
@@ -556,6 +599,13 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     distance_mm: distanceMm,
     ready: true
   }, 'capture-dual'), [dualSessionState?.subject_id, send]);
+  const saveDualAnthropometry = useCallback((records) => send('save_dual_anthropometry', {
+    subject_id: dualSessionState?.subject_id,
+    records
+  }, 'measurements'), [dualSessionState?.subject_id, send]);
+  const completeDualSession = useCallback(() => send('complete_dual_session', {
+    subject_id: dualSessionState?.subject_id
+  }, 'completion'), [dualSessionState?.subject_id, send]);
 
   const controlActions = useMemo(() => ({
     lastCaptureResult,
@@ -578,16 +628,21 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     dualSessionState,
     selectedOutputDirectory,
     createDualSession,
+    openDualSession,
     selectOutputDirectory,
     startNextDualSubject,
     captureDualGroup,
+    saveDualAnthropometry,
+    completeDualSession,
+    dualCompletionReport: completionReport,
     completeSubject
   }), [
     captureCondition, completeSubject, completionReport, connectCamera, createSubject,
     disconnectCamera, lastCaptureResult, refreshCamera, refreshProtocol,
     requestReviewPreview, reviewCapture, reviewPreview, reviewPreviewError,
     reviewPreviewLoading, saveAnthropometry, saveDailyEquipmentCheck, selectPreviewCondition, selectSubject,
-    dualSessionState, selectedOutputDirectory, createDualSession, selectOutputDirectory, startNextDualSubject, captureDualGroup
+    dualSessionState, selectedOutputDirectory, createDualSession, openDualSession, selectOutputDirectory,
+    startNextDualSubject, captureDualGroup, saveDualAnthropometry, completeDualSession
   ]);
 
   return {
@@ -611,9 +666,12 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     dualSessionState,
     selectedOutputDirectory,
     createDualSession,
+    openDualSession,
     selectOutputDirectory,
     startNextDualSubject,
     captureDualGroup,
+    saveDualAnthropometry,
+    completeDualSession,
     completeSubject,
     controlActions
   };
