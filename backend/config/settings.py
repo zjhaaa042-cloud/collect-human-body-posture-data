@@ -74,10 +74,29 @@ class Settings(BaseModel):
 _settings: Optional[Settings] = None
 
 
+def _apply_runtime_environment(settings: Settings) -> Settings:
+    """Resolve writable and read-only paths supplied by the packaged desktop app."""
+    asset_root_value = os.environ.get("BODY_POSTURE_ASSET_ROOT", "").strip()
+    if asset_root_value:
+        asset_root = Path(asset_root_value).resolve()
+        settings.camera.params_file = str(asset_root / "config" / "camera_params.json")
+        settings.voice.model_path = str(asset_root / "models" / "vosk-model-small-cn-0.22")
+        settings.distance.pose_model_path = str(asset_root / "models" / "pose_landmarker_full.task")
+
+    data_dir = os.environ.get("BODY_POSTURE_DATA_DIR", "").strip()
+    if data_dir:
+        settings.storage.output_dir = str(Path(data_dir).resolve())
+
+    log_file = os.environ.get("BODY_POSTURE_LOG_FILE", "").strip()
+    if log_file:
+        settings.log_file = str(Path(log_file).resolve())
+    return settings
+
+
 def get_settings() -> Settings:
     global _settings
     if _settings is None:
-        _settings = Settings()
+        _settings = _apply_runtime_environment(Settings())
     return _settings
 
 
@@ -87,12 +106,12 @@ def load_settings(config_path: str) -> Settings:
         import json
         with open(config_path, 'r', encoding='utf-8') as f:
             config_data = json.load(f)
-        _settings = Settings(**config_data)
+        _settings = _apply_runtime_environment(Settings(**config_data))
         logger.info(f"Settings loaded from {config_path}")
         return _settings
     except Exception as e:
         logger.error(f"Failed to load settings: {e}")
-        _settings = Settings()
+        _settings = _apply_runtime_environment(Settings())
         return _settings
 
 

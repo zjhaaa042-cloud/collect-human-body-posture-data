@@ -16,7 +16,9 @@ def main():
 
         print("[1/3] 加载配置...")
         from backend.config.settings import load_settings, get_settings
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+        config_path = os.environ.get("BODY_POSTURE_CONFIG_FILE") or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "config.json"
+        )
         if os.path.exists(config_path):
             settings = load_settings(config_path)
             print(f"  已加载: {config_path}")
@@ -56,7 +58,8 @@ def main():
         print("详细错误信息:")
         traceback.print_exc()
         print()
-        input("按 Enter 键退出...")
+        if os.environ.get("BODY_POSTURE_PACKAGED") != "1":
+            input("按 Enter 键退出...")
 
 if __name__ == "__main__":
     main()

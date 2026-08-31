@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isReviewRequiredStatus, unwrapPayload } from '../protocol/protocolUtils.mjs';
+import { backendUrls, reconnectDelayMs, sendPacket } from '../collector/collectorTransport.mjs';
+import {
+  clearActiveDualSession,
+  persistActiveDualSession,
+  readActiveDualSession,
+  reduceDualSessionEvent
+} from '../collector/dualSessionState.mjs';
 
 const EMPTY_CAMERA = {
   connected: false,
@@ -7,15 +14,6 @@ const EMPTY_CAMERA = {
   devices: [],
   device: {},
   message: '摄像头状态未知'
-};
-
-const ACTIVE_DUAL_SESSION_KEY = 'bodyCollectorActiveDualSession';
-const readActiveDualSession = () => {
-  try {
-    return JSON.parse(localStorage.getItem(ACTIVE_DUAL_SESSION_KEY) || 'null') || null;
-  } catch {
-    return null;
-  }
 };
 
 const normalizeReviewPreview = (payload = {}, fallback = {}) => {
@@ -72,15 +70,13 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     const scheduleReconnect = () => {
       if (!active) return;
       window.clearTimeout(reconnectTimer);
-      const delay = Math.min(10000, 1000 * (2 ** Math.min(reconnectAttempt, 4)));
+      const delay = reconnectDelayMs(reconnectAttempt);
       reconnectAttempt += 1;
       reconnectTimer = window.setTimeout(connect, delay);
     };
 
     const sendOn = (target, type, payload = {}) => {
-      if (target?.readyState === WebSocket.OPEN) {
-        target.send(JSON.stringify({ type, ...payload }));
-      }
+      sendPacket(target, type, payload);
     };
 
     const applyReturnedState = (payload) => {
@@ -299,13 +295,10 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           if (payload.success === false) {
             message.error(payload.error || '双机任务创建或恢复失败');
           } else {
-            setDualSessionState(payload);
-            const activeRecord = {
-              subject_id: payload.subject_id,
-              output_path: payload.output_directory || (payload.output_root ? payload.output_root.replace(/[\\/]body_posture_dual_v2$/, '') : '')
-            };
+            setDualSessionState((previous) => reduceDualSessionEvent(previous, packet.type, payload));
+            const activeRecord = persistActiveDualSession(payload);
             activeDualSessionRef.current = activeRecord;
-            localStorage.setItem(ACTIVE_DUAL_SESSION_KEY, JSON.stringify(activeRecord));
+            if (activeRecord?.output_path) setSelectedOutputDirectory(activeRecord.output_path);
             if (payload.event === 'created') message.success('受试者登记完成，已建立双机八角度任务');
             if (payload.event === 'opened') message.success('已有双机八角度任务已恢复');
           }
@@ -315,7 +308,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           if (payload.success === false) {
             message.error(payload.error || '双机采集失败');
           } else {
-            if (payload.state) setDualSessionState(payload.state);
+            setDualSessionState((previous) => reduceDualSessionEvent(previous, packet.type, payload));
             message.success(`${payload.yaw_deg}° 双机采集完成`);
           }
           break;
@@ -324,7 +317,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           if (payload.success === false) {
             message.error(payload.error || '人体测量保存失败');
           } else {
-            if (payload.state) setDualSessionState(payload.state);
+            setDualSessionState((previous) => reduceDualSessionEvent(previous, packet.type, payload));
             message.success(payload.message || '人体测量已保存');
           }
           break;
@@ -333,7 +326,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           if (payload.success === false) {
             message.error(payload.error || '双机任务尚未满足完成条件');
           } else {
-            if (payload.state) setDualSessionState(payload.state);
+            setDualSessionState((previous) => reduceDualSessionEvent(previous, packet.type, payload));
             setCompletionReport(payload.report || null);
             message.success(payload.message || '受试者采集已完成');
           }
@@ -368,7 +361,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), 4000);
         try {
-          const response = await fetch(`http://${backendHost}/auth-token`, {
+          const response = await fetch(backendUrls(backendHost).token, {
             cache: 'no-store',
             signal: controller.signal
           });
@@ -384,7 +377,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
         scheduleReconnect();
         return;
       }
-      const currentSocket = new WebSocket(`ws://${backendHost}`);
+      const currentSocket = new WebSocket(backendUrls(backendHost).socket);
       socket = currentSocket;
       socketRef.current = currentSocket;
       currentSocket.onopen = () => {
@@ -591,7 +584,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     setDualSessionState(null);
     setCompletionReport(null);
     activeDualSessionRef.current = null;
-    localStorage.removeItem(ACTIVE_DUAL_SESSION_KEY);
+    clearActiveDualSession();
   }, []);
   const captureDualGroup = useCallback((yawDeg, distanceMm) => send('capture_dual_group', {
     subject_id: dualSessionState?.subject_id,

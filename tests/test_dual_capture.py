@@ -2,7 +2,11 @@ import unittest
 
 import numpy as np
 
-from backend.core.camera_adapters import FrameBundle
+from backend.core.camera_adapters import (
+    CameraExtrinsicsData,
+    CameraIntrinsicsData,
+    FrameBundle,
+)
 from backend.core.dual_capture import DualCameraCaptureCoordinator, DualCameraCaptureError
 
 
@@ -16,9 +20,39 @@ class FakeDualCamera:
 
     def get_frames(self, timeout_ms):
         del timeout_ms
+        intrinsic = CameraIntrinsicsData(
+            fx=2.0, fy=2.0, cx=0.5, cy=0.5, width=2, height=2,
+        )
+        frame_number = int(next(self.timestamps))
         return FrameBundle(
             color=np.zeros((2, 2, 3), dtype=np.uint8),
-            host_timestamp_ns=next(self.timestamps),
+            depth_raw=np.full((2, 2), 1000, dtype=np.uint16),
+            depth_aligned=np.full((2, 2), 1000, dtype=np.uint16),
+            camera_metadata={"rgb_color_order": "RGB"},
+            intrinsics={
+                "color": intrinsic,
+                "depth_raw": intrinsic,
+                "depth_aligned": intrinsic,
+            },
+            extrinsics={
+                "depth_raw_to_color": CameraExtrinsicsData(
+                    source="depth_raw",
+                    target="color",
+                    rotation=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+                    translation=(0.0, 0.0, 0.0),
+                )
+            },
+            stream_timestamps={
+                "color": float(frame_number),
+                "depth_raw": float(frame_number),
+                "depth_aligned": float(frame_number),
+            },
+            stream_frame_numbers={
+                "color": frame_number,
+                "depth_raw": frame_number,
+                "depth_aligned": frame_number,
+            },
+            host_timestamp_ns=frame_number,
         )
 
 

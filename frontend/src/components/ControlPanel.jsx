@@ -5,6 +5,7 @@ import CameraConnection from './CameraConnection';
 import CompletionPanel from './CompletionPanel';
 import DualCaptureWorkspace from './DualCaptureWorkspace';
 import SubjectSetup from './SubjectSetup';
+import { dualIntegrityMessage } from '../collector/dualSessionState.mjs';
 import './ControlPanel.css';
 
 const { Text } = Typography;
@@ -23,6 +24,7 @@ function ControlPanel({
   const [activeTab, setActiveTab] = useState('subject');
   const previousSubject = useRef('');
   const state = actions.dualSessionState;
+  const integrityMessage = dualIntegrityMessage(state);
 
   useEffect(() => {
     if (state?.subject_id && previousSubject.current !== state.subject_id) {
@@ -102,6 +104,16 @@ function ControlPanel({
         )}
         {protocolError && !catalog.measurements?.length && (
           <Alert type="warning" showIcon message="人体测量字典加载失败" description={protocolError} />
+        )}
+        {integrityMessage && (
+          <Alert
+            className="protocol-integrity-alert"
+            type={state?.reconciliation_required ? 'error' : 'info'}
+            showIcon
+            role={state?.reconciliation_required ? 'alert' : 'status'}
+            message={state?.reconciliation_required ? '当前任务已锁定' : '任务恢复完成'}
+            description={integrityMessage}
+          />
         )}
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} destroyOnHidden={false} className="protocol-tabs" />
       </Card>

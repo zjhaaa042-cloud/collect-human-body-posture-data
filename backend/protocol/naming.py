@@ -25,6 +25,8 @@ MODALITY_EXTENSIONS = {
     "rgb": ".png",
     "depth_raw": ".png",
     "depth_aligned": ".png",
+    "depth_raw_npy": ".npy",
+    "depth_aligned_npy": ".npy",
     "ir": ".png",
     "ir_left": ".png",
     "ir_right": ".png",

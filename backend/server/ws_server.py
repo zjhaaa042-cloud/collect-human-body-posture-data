@@ -25,13 +25,13 @@ from ..core.camera_adapters import (
 )
 from ..core.depth_analyzer import DepthAnalyzer, DistanceStatus
 from ..core.data_collector import DataCollector, CaptureConfig
+from ..core.frame_contract import FrameContractError, validate_frame_contract
 from ..core.protocol_store import (
     IncompleteSubjectError,
     ProtocolStore,
     ProtocolStoreError,
 )
-from ..core.dual_capture import DualCameraCaptureCoordinator, DualCameraCaptureError
-from ..core.dual_session_store import DualSessionStore, DualSessionStoreError
+from ..application.dual_workflow import DualWorkflowService
 from ..protocol import (
     Condition,
     full31_no_lux,
@@ -129,6 +129,7 @@ _REQUIRED_QC_CHECK_COUNTS = {
     "BURST_FRAME_COUNT": 1,
     "REQUIRED_MODALITIES": 5,
     "IMAGE_FORMAT_AND_SHAPE": 5,
+    "RGBD_FRAME_CONTRACT": 5,
     "CALIBRATION_COMPLETE": 5,
     "DEPTH_RAW_VALID_RATIO": 5,
     "DEPTH_ALIGNED_VALID_RATIO": 5,
@@ -315,6 +316,7 @@ class WebSocketServer:
         self.shutdown_when_idle = (
             os.environ.get("BODY_COLLECTOR_SHUTDOWN_WHEN_IDLE") == "1"
         )
+        self.dual_workflow = DualWorkflowService(self._dual_adapters)
         self._had_authenticated_client = False
         self._idle_shutdown_task = None
 
@@ -1325,6 +1327,33 @@ class WebSocketServer:
                     "burst_consistency": True,
                 },
             )
+
+            try:
+                frame_contract = validate_frame_contract(
+                    frame, str(getattr(condition, "camera_code", "UNKNOWN"))
+                )
+                contract_error = None
+            except FrameContractError as exc:
+                frame_contract = None
+                contract_error = str(exc)
+            add_check(
+                "RGBD_FRAME_CONTRACT",
+                "FAIL" if contract_error else "PASS",
+                (
+                    f"{label} RGB-D 颜色/空间/时间契约失败：{contract_error}"
+                    if contract_error
+                    else f"{label} RGB 色序正确，aligned depth 与 RGB 同像素坐标，raw depth 标定可追溯"
+                ),
+                frame=label,
+                value=frame_contract or {"error": contract_error},
+                threshold={
+                    "rgb_color_order": "RGB",
+                    "aligned_depth_matches_rgb_pixels": True,
+                    "raw_aligned_same_depth_frame": True,
+                    "maximum_stream_timestamp_skew_ms": 75.0,
+                },
+            )
+            metric["frame_contract"] = frame_contract or {"error": contract_error}
 
             intrinsics = self._jsonable(frame.intrinsics)
             extrinsics = self._jsonable(frame.extrinsics)
@@ -2626,53 +2655,7 @@ class WebSocketServer:
         return registry["orbbec"], registry["realsense"]
 
     def _dual_session_state(self) -> dict:
-        store = getattr(self, "dual_session_store", None)
-        subject_id = getattr(self, "dual_active_subject_id", "")
-        if store is None or not subject_id:
-            return {"active": False, "angles": []}
-        state = store.get_session(subject_id)
-        angles = sorted(
-            state.get("angles", {}).values(), key=lambda item: int(item.get("yaw_deg", 0))
-        )
-        captured = sum(item.get("status") == "CAPTURED" for item in angles)
-        anthropometry = dict(state.get("anthropometry") or {})
-        blockers = []
-        if captured < len(angles):
-            blockers.append(f"双机八角度尚未完成（{captured}/{len(angles)}）")
-        if anthropometry.get("complete") is not True:
-            blockers.append("M01–M13 必填人体测量尚未完成")
-        completed = str(state.get("status") or "").upper() == "COMPLETE"
-        return {
-            "active": True,
-            "subject_id": subject_id,
-            "status": state.get("status", "ACTIVE"),
-            "created_at": state.get("created_at"),
-            "completed_at": state.get("completed_at"),
-            "output_directory": state.get("output_directory") or str(store.output_directory),
-            "output_root": state.get("output_root"),
-            "clothing_note": state.get("clothing_note", ""),
-            "target_distance_mm": state.get("target_distance_mm"),
-            "angles": angles,
-            "progress": {
-                "captured": captured,
-                "expected": len(angles),
-                "missing": len(angles) - captured,
-                "percent": round(captured * 100.0 / len(angles), 1) if angles else 0.0,
-            },
-            "anthropometry": anthropometry,
-            "completion": {
-                **dict(state.get("completion") or {}),
-                "can_complete": not blockers and not completed,
-                "completed": completed,
-                "completed_at": state.get("completed_at"),
-                "status": "COMPLETE" if completed else "INCOMPLETE",
-                "blockers": [] if completed else blockers,
-            },
-            "next_yaw_deg": next(
-                (item.get("yaw_deg") for item in angles if item.get("status") != "CAPTURED"),
-                None,
-            ),
-        }
+        return self.dual_workflow.public_state()
 
     async def _create_dual_session(self, websocket, data: dict):
         subject_id = validate_subject_id(str(data.get("subject_id") or "").strip().upper())
@@ -2684,16 +2667,14 @@ class WebSocketServer:
             target_distance_mm = int(distance) if distance not in {None, ""} else None
         except (TypeError, ValueError) as exc:
             raise ValueError("距离必须是毫米整数") from exc
-        store = await asyncio.to_thread(DualSessionStore, output_path)
-        await asyncio.to_thread(
-            store.create_session,
-            subject_id,
+        state = await asyncio.to_thread(
+            self.dual_workflow.create_session,
+            subject_id=subject_id,
+            output_path=output_path,
             clothing_note=str(data.get("clothing_note") or ""),
             target_distance_mm=target_distance_mm,
         )
-        self.dual_session_store = store
-        self.dual_active_subject_id = subject_id
-        result = {"success": True, "state": self._dual_session_state()}
+        result = {"success": True, "state": state}
         await self._emit_protocol_message(websocket, {
             "type": "dual_session_state", "data": {**result["state"], "event": "created"},
         })
@@ -2704,29 +2685,28 @@ class WebSocketServer:
         output_path = str(data.get("output_path") or "").strip()
         if not output_path:
             raise ValueError("请选择原任务的数据输出文件夹")
-        store = await asyncio.to_thread(DualSessionStore, output_path)
-        await asyncio.to_thread(store.get_session, subject_id)
-        self.dual_session_store = store
-        self.dual_active_subject_id = subject_id
-        state = self._dual_session_state()
+        state = await asyncio.to_thread(
+            self.dual_workflow.open_session,
+            subject_id=subject_id,
+            output_path=output_path,
+        )
         await self._emit_protocol_message(websocket, {
             "type": "dual_session_state", "data": {**state, "event": "opened"},
         })
         return state
 
     async def _save_dual_anthropometry(self, websocket, data: dict):
-        store = getattr(self, "dual_session_store", None)
-        subject_id = str(data.get("subject_id") or getattr(self, "dual_active_subject_id", ""))
-        if store is None or not subject_id:
-            raise ValueError("请先登记或继续一个双机受试者任务")
+        subject_id = str(data.get("subject_id") or "")
         records = data.get("records")
         if not isinstance(records, list):
             raise ValueError("records 必须是测量记录数组")
         definitions = [asdict(item) for item in measurement_definitions()]
-        await asyncio.to_thread(
-            store.save_anthropometry, subject_id, records, definitions
+        state = await asyncio.to_thread(
+            self.dual_workflow.save_anthropometry,
+            subject_id=subject_id,
+            records=records,
+            definitions=definitions,
         )
-        state = self._dual_session_state()
         result = {"success": True, "state": state, "message": "人体测量已保存"}
         await self._emit_protocol_message(websocket, {
             "type": "dual_anthropometry_result", "data": result,
@@ -2734,12 +2714,11 @@ class WebSocketServer:
         return result
 
     async def _complete_dual_session(self, websocket, data: dict):
-        store = getattr(self, "dual_session_store", None)
-        subject_id = str(data.get("subject_id") or getattr(self, "dual_active_subject_id", ""))
-        if store is None or not subject_id:
-            raise ValueError("请先登记或继续一个双机受试者任务")
-        await asyncio.to_thread(store.complete_session, subject_id)
-        state = self._dual_session_state()
+        subject_id = str(data.get("subject_id") or "")
+        state = await asyncio.to_thread(
+            self.dual_workflow.complete_session,
+            subject_id=subject_id,
+        )
         result = {
             "success": True,
             "state": state,
@@ -2756,55 +2735,35 @@ class WebSocketServer:
         return result
 
     async def _capture_dual_group(self, websocket, data: dict):
-        if not bool(data.get("ready")):
-            raise ValueError("请确认受试者已按当前角度就位且全身完整入框")
-        store = getattr(self, "dual_session_store", None)
-        subject_id = str(data.get("subject_id") or getattr(self, "dual_active_subject_id", ""))
-        if store is None or not subject_id:
-            raise ValueError("请先创建双机采集任务")
-        state = self._dual_session_state()
-        yaw_deg = int(data.get("yaw_deg"))
-        expected_yaw = state.get("next_yaw_deg")
-        if expected_yaw is not None and yaw_deg != expected_yaw:
-            raise ValueError(f"请按顺序采集，下一角度为 {expected_yaw}°")
-        gemini, d435i = self._dual_adapters()
-        coordinator = DualCameraCaptureCoordinator(gemini, d435i)
-        if self.capture_lock.locked():
-            raise ValueError("正在采集中，请稍候")
-        async with self.capture_lock:
-            self.is_capturing = True
-            try:
-                if self.voice_synthesizer:
-                    self.voice_synthesizer.speak("请保持姿势不动，两秒后双机采集。", blocking=False)
-                await asyncio.sleep(2.0)
-                burst = await coordinator.capture_burst(
-                    frame_count=_PROTOCOL_BURST_FRAMES,
-                    interval_ms=_PROTOCOL_BURST_INTERVAL_SEC * 1000.0,
+        subject_id = str(data.get("subject_id") or "")
+        distance = data.get("distance_mm")
+        try:
+            distance_mm = int(distance) if distance not in {None, ""} else None
+            yaw_deg = int(data.get("yaw_deg"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("角度和距离必须是整数") from exc
+
+        def set_capturing(value: bool) -> None:
+            self.is_capturing = value
+
+        def announce() -> None:
+            if self.voice_synthesizer:
+                self.voice_synthesizer.speak(
+                    "请保持姿势不动，两秒后双机采集。", blocking=False
                 )
-                distance = data.get("distance_mm")
-                distance_mm = int(distance) if distance not in {None, ""} else None
-                committed = await asyncio.to_thread(
-                    store.commit_group,
-                    subject_id,
-                    yaw_deg,
-                    [pair.gemini for pair in burst.pairs],
-                    [pair.d435i for pair in burst.pairs],
-                    audit=burst.audit_payload(),
-                    metadata={
-                        "distance_mm": distance_mm,
-                        "ready_confirmed_at": datetime.now(timezone.utc).isoformat(),
-                    },
-                )
-                self.dual_active_subject_id = subject_id
-                result = {
-                    "success": True,
-                    "yaw_deg": yaw_deg,
-                    "attempt_id": committed["attempt_id"],
-                    "sync_audit": burst.audit_payload(),
-                    "state": self._dual_session_state(),
-                }
-            finally:
-                self.is_capturing = False
+
+        result = await self.dual_workflow.capture_group(
+            subject_id=subject_id,
+            yaw_deg=yaw_deg,
+            distance_mm=distance_mm,
+            ready=bool(data.get("ready")),
+            capture_lock=self.capture_lock,
+            camera_lock=self.camera_lock,
+            set_capturing=set_capturing,
+            announce=announce,
+            frame_count=_PROTOCOL_BURST_FRAMES,
+            interval_ms=_PROTOCOL_BURST_INTERVAL_SEC * 1000.0,
+        )
         await self._emit_protocol_message(websocket, {
             "type": "dual_capture_result", "data": result,
         })
@@ -4081,7 +4040,11 @@ class WebSocketServer:
         try:
             self.loop = asyncio.get_event_loop()
 
-            token_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".ws_token")
+            token_file = os.environ.get("BODY_POSTURE_TOKEN_FILE") or os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                ".ws_token",
+            )
+            os.makedirs(os.path.dirname(os.path.abspath(token_file)), exist_ok=True)
             with open(token_file, 'w', encoding='utf-8') as f:
                 f.write(self.auth_token)
 
@@ -4158,6 +4121,12 @@ class WebSocketServer:
         if protocol_store is not None and hasattr(protocol_store, "close"):
             try:
                 protocol_store.close()
+            except Exception:
+                pass
+        dual_workflow = getattr(self, "dual_workflow", None)
+        if dual_workflow is not None:
+            try:
+                dual_workflow.close()
             except Exception:
                 pass
         self.loop = None

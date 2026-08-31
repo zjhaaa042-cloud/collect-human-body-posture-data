@@ -15,6 +15,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
+node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22 ? 0 : 1)"
+if errorlevel 1 (
+  echo [ERROR] Vite 8 requires Node.js 20.19+ or 22.12+.
+  echo.
+  if "%PAUSE_ON_EXIT%"=="1" pause
+  exit /b 1
+)
+
 echo.
 echo [Frontend] Installing runtime packages from npmmirror registry...
 cd /d "%~dp0frontend"

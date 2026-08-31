@@ -1,6 +1,6 @@
 # 人体体态数据采集系统 — 历史结构说明
 
-> 本文主要保留旧 `v3` 会话与 Electron 时代的结构描述，不能作为当前正式 RealAnthro-RGBD-v1 采集流程的依据。当前运行入口、协议工作台、日检复用、WARN 复核和存储约定以 [README.md](README.md) 及源码为准；后续会逐步拆分并归档本旧文档。
+> 本文保留旧 `v3` 会话与 Electron 时代的结构描述，仅用于兼容维护。当前分层、主数据流和模块边界见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；运行与数据格式以 [README.md](README.md) 为准。
 
 ## 项目概述
 
@@ -99,6 +99,9 @@ body_posture_collector/
 ├── logs/                             # 应用日志
 │
 ├── go.bat                            # 一键启动脚本（后端 + 前端）
+├── build_windows.bat                 # 一键构建 Windows EXE 安装包
+├── packaging/                        # PyInstaller 后端冻结配置
+├── requirements-build.txt            # 打包专用依赖
 ├── run.bat                           # 启动脚本（备用）
 ├── run_backend.py                    # 后端启动入口
 ├── run_frontend.bat                  # 前端启动脚本（备用）

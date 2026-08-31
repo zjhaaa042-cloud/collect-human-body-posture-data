@@ -17,6 +17,19 @@ if not errorlevel 1 (
   exit /b 0
 )
 
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Node.js was not found. Install Node.js 20.19+ or 22.12+.
+  pause
+  exit /b 1
+)
+node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22 ? 0 : 1)"
+if errorlevel 1 (
+  echo [ERROR] Unsupported Node.js version. Vite 8 requires Node.js 20.19+ or 22.12+.
+  pause
+  exit /b 1
+)
+
 set "NEED_INSTALL="
 
 set "PYTHON_CMD=.venv\Scripts\python.exe"

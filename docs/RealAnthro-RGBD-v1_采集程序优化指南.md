@@ -14,7 +14,7 @@
 
 1. 默认采集矩阵已经固定为 `full31_no_lux`，包含 Gemini 336L 的 24 条条件和 D435i 的 7 条条件，共 31 条。
 2. 每个 condition 固定采集 5 组同步帧，`F03` 固定为 anchor；一名受试者完成当前矩阵应产生 155 组同步帧。
-3. RGB、raw depth、aligned depth 和设备要求的 IR 均按独立模态保存。raw depth 与 aligned depth 都是**无损 uint16 PNG**，不能互相覆盖，也不能降位成 8 bit。
+3. RGB、raw depth、aligned depth 和设备要求的 IR 均按独立模态保存。raw depth 与 aligned depth 都同时保存**无损 uint16 PNG 和原始 uint16 NPY**，不能互相覆盖，也不能降位成 8 bit。
 4. 正式目录已经实现为 `subjects/<subject_id>/cameras/C336L|CD435I/conditions/<condition_id>/attempts/<attempt_id>/`。
 5. 条件级 QC 策略与人体测量定义均随受试者固化；只追加 attempt、原子提交、逐文件 SHA-256、崩溃恢复、数据集独占锁、人工复核和完成完整性复查均已实现。
 6. 所有尚未由真实受试者 Pilot 冻结的启发式 WARN 都必须进入实名人工复核；复核必须查看从已提交目录、sidecar 和逐文件哈希完整验证后读取的 `F03` RGB 与 aligned depth，接受动作还会再次校验证据摘要。
@@ -220,6 +220,8 @@ camera_metadata
 | `rgb/` | PNG | `uint8` | 无损保存彩色帧 |
 | `depth_raw/` | PNG | `uint16` | 原始深度，不做 8 bit 可视化转换 |
 | `depth_aligned/` | PNG | `uint16` | 对齐 RGB 的深度，仍保留原始深度数值 |
+| `depth_raw_npy/` | NPY | `uint16` | 与 raw depth PNG 逐像素一致，使用清单中的深度比例换算毫米 |
+| `depth_aligned_npy/` | NPY | `uint16` | 与 aligned depth PNG 逐像素一致，使用清单中的深度比例换算毫米 |
 | `ir_left/` | PNG | `uint8` 或 `uint16` | 左 IR |
 | `ir_right/` | PNG | `uint8` 或 `uint16` | 右 IR |
 
@@ -637,7 +639,7 @@ D435i 的 SDK、Windows 元数据、首帧门禁、100次 burst、10分钟稳定
 
 后续修改必须保持：
 
-- 深度始终以无损 `uint16 PNG` 保存；
+- 深度始终同时以无损 `uint16 PNG` 和原始 `uint16 NPY` 保存；
 - raw depth 与 aligned depth 始终独立；
 - 正式相机目录只使用 `C336L` 和 `CD435I`；
 - 正式 attempt 始终位于 `cameras/<camera_code>/conditions/<condition_id>/attempts/<attempt_id>/`；

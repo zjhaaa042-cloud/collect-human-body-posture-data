@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .camera_adapters import CameraAdapter, FrameBundle
+from .frame_contract import FrameContractError, validate_frame_contract
 
 
 class DualCameraCaptureError(RuntimeError):
@@ -106,6 +107,14 @@ class DualCameraCaptureCoordinator:
             if gemini is None or d435i is None:
                 missing = "Gemini 336L" if gemini is None else "D435i"
                 raise DualCameraCaptureError(f"双机第 {index + 1} 对帧获取失败：{missing} 无数据")
+            for camera_code, frame in (("C336L", gemini), ("CD435I", d435i)):
+                try:
+                    contract = validate_frame_contract(frame, camera_code)
+                except FrameContractError as exc:
+                    raise DualCameraCaptureError(
+                        f"双机第 {index + 1} 对帧校验失败：{exc}"
+                    ) from exc
+                frame.camera_metadata["frame_contract"] = contract
             request_skew_ms = abs(
                 request_started["gemini"] - request_started["d435i"]
             ) / 1_000_000.0

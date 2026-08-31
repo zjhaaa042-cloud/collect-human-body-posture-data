@@ -28,8 +28,17 @@ if errorlevel 1 (
 where npm >nul 2>nul
 if errorlevel 1 (
   echo [ERROR] npm was not found.
-  echo Please install Node.js 18+ LTS first.
+  echo Please install Node.js 20.19+ or 22.12+ LTS first.
   echo Download: https://nodejs.org/
+  echo.
+  if "%PAUSE_ON_EXIT%"=="1" pause
+  exit /b 1
+)
+
+node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22 ? 0 : 1)"
+if errorlevel 1 (
+  echo [ERROR] Unsupported Node.js version.
+  echo Vite 8 requires Node.js 20.19+ or 22.12+.
   echo.
   if "%PAUSE_ON_EXIT%"=="1" pause
   exit /b 1
@@ -161,9 +170,9 @@ echo ==========================================
 echo.
 echo Please check the error above.
 echo Common fixes:
-echo - Install Python 3.10 or 3.11 and Node.js 18+ LTS.
+echo - Install Python 3.10 or 3.11 and Node.js 20.19+ or 22.12+ LTS.
 echo - Python 3.12/3.13 cannot install the firmware-matched pyrealsense2 2.54.2 wheel.
-echo - If frontend install fails, use Node.js 20 LTS or 22 LTS instead of very new Node versions.
+echo - If frontend install fails, use Node.js 20.19+ LTS or 22.12+ LTS.
 echo - If npm reports ECONNRESET, rerun install_frontend_deps.bat or switch to a stable network.
 echo - If PyAudio fails, install Microsoft C++ Build Tools, then run this file again.
 echo - If pyorbbecsdk2 fails, install the Orbbec SDK/runtime for your camera.

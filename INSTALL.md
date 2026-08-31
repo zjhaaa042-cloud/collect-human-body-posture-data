@@ -3,7 +3,7 @@
 ## 系统要求
 
 - Python 3.10 或 3.11（D435i 固件 5.15.1.55 对应 SDK 2.54.2）
-- Node.js 18+
+- Node.js 20.19+ 或 22.12+（Vite 8 要求）
 - Windows 10+
 - 奥比中光 Gemini 336L 与 Intel RealSense D435i
 
@@ -93,6 +93,24 @@ run_frontend.bat
 npm run electron:dev
 ```
 
+该命令通过 Electron 的 `--dev` 模式启动唯一一个 Vite 子进程并等待其就绪；不会读取旧的 `frontend/build` 页面。
+
+## 构建 Windows 安装包
+
+首次构建需要联网安装 PyInstaller 和 Electron Builder 依赖：
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+生成文件：
+
+```text
+frontend\release\BodyPostureCollector-Setup-1.0.2.exe
+```
+
+安装包包含前端、Electron、本项目 Python 后端及相机 Python SDK。安装后的默认可写数据目录为 `%USERPROFILE%\Documents\BodyPostureCollectorData`，运行配置和日志位于 Electron 用户数据目录。硬件厂商的 Windows USB/相机驱动仍需在采集电脑上正确安装。
+
 ## 首次采集前验收
 
 两台相机顺序验收，避免同一设备被多个进程占用。以下示例以 D435i 为例；Gemini 将 `realsense` 改为 `orbbec`，并换成对应序列号。
@@ -111,9 +129,15 @@ npm run electron:dev
 # 不进入正式数据集的完整写入/F03 复核链
 .\.venv\Scripts\python.exe scripts\verify_dev_only_capture.py `
   --backend realsense --device-id 243722074968 --acknowledge-dev-only
+
+# 两台相机同时连接，验证一个双机五帧组及 PNG/NPY 一致性
+.\.venv\Scripts\python.exe scripts\verify_dual_capture.py `
+  --acknowledge-dev-only
 ```
 
 `verify_dev_only_capture.py` 只允许项目内路径名含 `dev_only` 的隔离目录，并固定以 `REJECT` 结束。若 Windows 在原子提交或复核账本更新时中断，程序保留 staging/review sidecar；使用 `scripts/recover_dev_only_run.py --help` 查看安全恢复命令，不要手工复制或覆盖 attempt。
+
+新采集的 RealAnthro 和双机数据会同时保存 raw/aligned `uint16 PNG` 与 `uint16 NPY`。NPY 不预乘深度比例；请读取清单里的 `depth_scale_mm_per_unit` 换算毫米。
 
 ## 常见问题
 

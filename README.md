@@ -6,7 +6,7 @@
 
 ## 功能特性
 
-- 默认双机流程为 360° 每 45° 一组，共 8 组；每组由 Gemini 336L 与 D435i 各采 5 帧 RGB-D、伪彩深度和带颜色点云数据。
+- 默认双机流程为 360° 每 45° 一组，共 8 组；每组由 Gemini 336L 与 D435i 各采 5 帧 RGB-D、原始 uint16 NPY、伪彩深度和带颜色点云数据。
 - 双机实时预览同时显示两台相机的 RGB 与深度画面；正式文件始终保持传感器原始方向。
 - MediaPipe 姿态、人体分割和实时质量分仅用于操作提示，不作为协议硬门禁。
 - 距离可在登记时填写默认值，也可在每个角度采集前单独修改。
@@ -40,7 +40,7 @@ React + Ant Design 采集工作台
 
 | 模块 | 技术 | 主要职责 |
 | --- | --- | --- |
-| 后端 | Python、asyncio、WebSocket | 相机控制、数据分析、采集和存储 |
+| 后端 | Python、asyncio、WebSocket | WebSocket 接入、双机应用服务、相机控制、数据分析和原子存储 |
 | 视觉 | OpenCV、MediaPipe | 图像处理、姿态估计和人体分割 |
 | 相机 | `pyorbbecsdk2`、`pyrealsense2` | RGB-D 帧同步、对齐和设备控制 |
 | 前端 | React 18、Ant Design 5、Vite | 实时预览、受试者登记、八角度进度、人工测量和完成 |
@@ -53,7 +53,7 @@ React + Ant Design 采集工作台
 
 - Windows 10/11 64 位。
 - Python 3.10 或 3.11（D435i 运行时锁定在该范围）。
-- Node.js 18 LTS 或更高版本，推荐 Node.js 20/22 LTS。
+- Node.js `20.19+` 或 `22.12+`（Vite 8 的运行时要求）。
 - 完整采集需要 Gemini 336L 与 D435i 两台相机、对应驱动及可用的 USB 3.x 接口。
 - 首次安装依赖和姿态模型时需要网络连接。
 
@@ -99,6 +99,30 @@ cd ..
 - WebSocket：`ws://localhost:8765`
 
 `go.bat` 会检查依赖并统一管理前后端进程；关闭前端后，后端和 Vite 服务也会自动退出。
+
+## 打包为 Windows EXE
+
+开发机完成依赖安装后，双击 `build_windows.bat`，或在 PowerShell 中运行：
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+脚本会使用 PyInstaller 生成内置 Python 后端，再构建前端并通过 Electron Builder 生成安装包：
+
+```text
+frontend/release/BodyPostureCollector-Setup-1.0.2.exe
+```
+
+安装后的应用不要求操作员另行安装 Python、Node.js 或执行 `go.bat`。应用会自动启动本地采集后端并等待健康检查；正常退出时也会安全关闭后端。默认数据目录为用户“文档”下的 `BodyPostureCollectorData`，双机流程仍可在界面中选择其他输出目录。
+
+只需要快速验证未安装目录时，可运行：
+
+```powershell
+.\scripts\build_windows.ps1 -DirectoryOnly
+```
+
+目录包输出到 `frontend/release/win-unpacked`。打包产物仍需在目标采集电脑上安装 Gemini 336L、D435i 对应的系统驱动；Python SDK 和运行库已包含在应用中。
 
 ## 开发模式
 
@@ -238,7 +262,7 @@ subjects/<subject_id>/cameras/<camera_code>/conditions/<condition_id>/attempts/<
 | 数据类型 | 格式 | 说明 |
 | --- | --- | --- |
 | RGB 图像 | PNG | 五帧，`F03` 为复核 anchor |
-| 原始/对齐深度 | 无损 uint16 PNG | 两种深度独立保存，不降位 |
+| 原始/对齐深度 | 无损 uint16 PNG + uint16 NPY | 两种深度独立保存；NPY 与 PNG 逐像素一致，不降位 |
 | 左/右红外 | PNG | 两路物理 IR 独立保存 |
 | sidecar | JSON | `capture.json`、`qc.json`、`commit.json` |
 
@@ -253,15 +277,23 @@ body_posture_dual_v2/subjects/<subject_id>/
     ├── camera_gemini_336l/
     │   ├── rgb_color/frame_01.png
     │   ├── depth_raw_uint16/frame_01.png
+    │   ├── depth_raw_npy/frame_01.npy
     │   ├── depth_raw_color/frame_01.png
     │   ├── depth_aligned_uint16/frame_01.png
+    │   ├── depth_aligned_npy/frame_01.npy
     │   ├── depth_aligned_color/frame_01.png
     │   └── pointcloud_color_xyz_mm/frame_01.ply
     ├── camera_realsense_d435i/     # 目录结构相同
     └── capture_manifest.json
 ```
 
-`depth_*_uint16` 是保留量化深度值的无损 PNG；`depth_*_color` 是便于查看的伪彩 PNG。PLY 为带 RGB 颜色、单位毫米的二进制点云，按每 4 像素取一个点控制文件体积。根目录另有 `README_数据格式说明.txt` 说明字段含义。
+`depth_*_uint16` 与 `depth_*_npy` 都保存传感器原始 `uint16` 量化值，并应逐像素一致；NPY 使用 `allow_pickle=False` 读取。毫米值为 `array * depth_scale_mm_per_unit`，比例记录在 `capture_manifest.json` 的逐帧元数据和 NPY 文件记录中。`depth_*_color` 仅用于查看。PLY 为带 RGB 颜色、单位毫米的二进制点云，按每 4 像素取一个点控制文件体积。每个新 attempt 另有 `commit.json`，用于中断后的哈希恢复。
+
+RGB 在相机适配层统一为 `uint8 H×W×3`、RGB 通道顺序和 sRGB 色彩语义；预览 JPEG 与落盘 PNG 只在调用 OpenCV 编码器前转换为 BGR，并执行编码后回读校验。OpenCV 用户读取 PNG 后得到的是 BGR，训练或显示前应转换回 RGB。
+
+三类数据的“对齐”分为两层：RGB 与 `depth_aligned` 在像素坐标、分辨率和内参上严格一致；`depth_raw` 必须保留深度相机原始坐标，不能伪装成 RGB 像素对齐。三者来自同一 SDK 帧集，并由帧号、时间戳及 raw-depth-to-color 外参建立可审计关联；任一契约不满足都会中止采集。
+
+升级前已经提交的 attempt 不会回填 NPY；旧数据继续按原清单读取。升级后新增的双机和 RealAnthro attempt 都强制包含 raw/aligned 两类 NPY。
 
 ## 真机验收与 DEV_ONLY
 
@@ -276,14 +308,18 @@ body_posture_dual_v2/subjects/<subject_id>/
 
 # 隔离写入、F03 证据、REJECT 复核与严格审计
 .\.venv\Scripts\python.exe scripts\verify_dev_only_capture.py --backend realsense --acknowledge-dev-only
+
+# 双机近同步 + PNG/NPY/PLY/标定/哈希完整链（空场景即可）
+.\.venv\Scripts\python.exe scripts\verify_dual_capture.py --acknowledge-dev-only
 ```
 
 `DEV_ONLY` 数据只允许写入路径名含 `dev_only` 的项目内隔离目录，固定以 `REJECT` 结束，不会进入正式数据集。中断后的隔离运行可使用 `scripts/recover_dev_only_run.py` 做哈希恢复与审计。
+双机脚本默认写入 `data/dev_only_validation/dual_npy_smoke/`，并在 `reports/hardware/dual_npy_smoke.json` 记录最大主机时间差、80 个文件和 20 组 NPY/PNG 一致性结果。
 
 ## 系统要求
 
 - Python 3.10 或 3.11
-- Node.js 18+
+- Node.js 20.19+ 或 22.12+
 - Windows 10+
 - 奥比中光 Gemini 336L 与 Intel RealSense D435i
 
@@ -302,6 +338,7 @@ body_posture_dual_v2/subjects/<subject_id>/
 | 姿态或质量提示不可用 | 检查 MediaPipe 模型，并确认画面中有完整人体；正式条件仍需人工确认 |
 | 图像质量不达标 | 调整距离、光照、相机高度和人体边缘余量 |
 | Windows 原子改名短时拒绝访问 | 当前会对锁错误 5/32/33 有限重试；若仍失败会保留 staging，使用 DEV_ONLY 恢复脚本审计，禁止手工复制覆盖 |
+| 双机任务提示“待恢复/完整性异常” | 不要删除 `.staging` 或手工修改清单；重新打开原任务会自动校验完整 commit。只有完整且哈希一致的数据会被恢复，异常证据会原样保留并锁定写入 |
 | 语音模型加载失败 | 确认模型已下载并放置在正确目录 |
 
 ## 数据与隐私

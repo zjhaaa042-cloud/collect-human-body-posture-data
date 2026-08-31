@@ -686,6 +686,10 @@
   color: #e5f0f6;
 }
 
+.protocol-integrity-alert {
+  margin-bottom: 1rem;
+}
+
 .review-evidence-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -26,7 +26,9 @@ class FrameProcessor:
                 resized = frame
             if is_rgb:
                 resized = cv2.cvtColor(resized, cv2.COLOR_RGB2BGR)
-            _, buffer = cv2.imencode('.jpg', resized, self._encode_params)
+            encoded_ok, buffer = cv2.imencode('.jpg', resized, self._encode_params)
+            if not encoded_ok or buffer is None or buffer.size == 0:
+                raise ValueError("RGB preview JPEG encoding failed")
             return base64.b64encode(buffer).decode('utf-8')
         except Exception as e:
             logger.error(f"Failed to encode preview: {e}")
@@ -44,7 +46,9 @@ class FrameProcessor:
                 resized = frame
             if is_rgb:
                 resized = cv2.cvtColor(resized, cv2.COLOR_RGB2BGR)
-            _, buffer = cv2.imencode('.jpg', resized, self._encode_params)
+            encoded_ok, buffer = cv2.imencode('.jpg', resized, self._encode_params)
+            if not encoded_ok or buffer is None or buffer.size == 0:
+                raise ValueError("RGB preview JPEG encoding failed")
             return base64.b64encode(buffer).decode('utf-8')
         except Exception as e:
             logger.error(f"Failed to encode preview fast: {e}")

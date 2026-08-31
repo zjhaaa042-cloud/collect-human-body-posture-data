@@ -65,7 +65,12 @@ class FakeProtocolCamera:
             depth_scale=1.0,
             device_timestamp=timestamp,
             frame_number=self.counter,
-            camera_metadata={"backend": self.backend, "serial": "FAKE001"},
+            camera_metadata={
+                "backend": self.backend,
+                "serial": "FAKE001",
+                "rgb_color_order": "RGB",
+                "rgb_transfer": "sRGB",
+            },
             intrinsics={
                 "color": color_intrinsics,
                 "depth_raw": depth_intrinsics,
@@ -505,7 +510,7 @@ class ProtocolWebSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(condition_state["status"], "REVIEW_REQUIRED")
         attempt = raw["attempts"][result["attempt_id"]]
         self.assertEqual(len(attempt["frames"]), 5)
-        self.assertEqual(len(attempt["files"]), 25)
+        self.assertEqual(len(attempt["files"]), 35)
 
         preview = self.server._load_protocol_review_preview(
             "S0001", format_condition_id(conditions[0]), result["attempt_id"]

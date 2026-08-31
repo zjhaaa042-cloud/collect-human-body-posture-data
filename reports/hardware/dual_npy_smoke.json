@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "dev_only": true,
+  "started_at": "2026-08-30T11:43:33.557628+00:00",
+  "finished_at": "2026-08-30T11:43:42.003941+00:00",
+  "output_root": "D:\\Desktop\\collect human body posture data\\body_posture_collector\\data\\dev_only_validation\\dual_npy_smoke",
+  "subject_id": "DEVONLY_20260830T114337",
+  "attempt_id": "capture_01_20260830T114337446753Z",
+  "file_count": 80,
+  "max_host_timestamp_skew_ms": 8.874,
+  "storage_features": [
+    "depth_npy_uint16_v1",
+    "per_frame_calibration_v1",
+    "durable_commit_v1"
+  ],
+  "commit_json": "D:\\Desktop\\collect human body posture data\\body_posture_collector\\data\\dev_only_validation\\dual_npy_smoke\\body_posture_dual_v2\\subjects\\DEVONLY_20260830T114337\\angles\\angle_000_front\\capture_01_20260830T114337446753Z\\commit.json",
+  "npy_files_checked": 20,
+  "png_npy_equal": true,
+  "rgb_png_files_checked": 10,
+  "rgb_png_exact_roundtrip": true,
+  "rgb_preview_frames_checked": 10,
+  "rgb_preview_mean_absolute_error_max": 1.11226953125,
+  "rgb_preview_swapped_channel_error_min": 0.19063078703703704,
+  "rgb_preview_channel_order": "RGB",
+  "rgbd_frame_contracts_checked": 10,
+  "aligned_depth_matches_rgb_pixels": true,
+  "raw_depth_coordinate_system": "native_depth_camera",
+  "max_intra_camera_stream_timestamp_skew_ms": 0.023681640625
+}

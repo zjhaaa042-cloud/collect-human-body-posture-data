@@ -236,8 +236,10 @@ class CameraManager:
                 return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
 
             if size == width * height * 3:
-                logger.warning(f"Unknown color frame format {frame_format}; treating data as RGB")
-                return data[:width * height * 3].reshape((height, width, 3))
+                logger.error(
+                    f"Unknown 3-channel color format {frame_format}; refusing to guess RGB/BGR order"
+                )
+                return None
 
             logger.warning(f"Unsupported color frame format: {frame_format}, bytes={size}, size={width}x{height}")
             return None

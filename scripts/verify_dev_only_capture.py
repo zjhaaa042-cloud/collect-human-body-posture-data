@@ -392,7 +392,7 @@ async def verify(args: argparse.Namespace) -> tuple[dict[str, Any], bool]:
         ]
         report["write_chain"] = {
             "file_count": len(files),
-            "expected_file_count": 25,
+            "expected_file_count": 35,
             "modality_counts": dict(sorted(modality_counts.items())),
             "sidecar_names": sorted(sidecars),
             "sidecars": sidecars,
@@ -435,7 +435,7 @@ async def verify(args: argparse.Namespace) -> tuple[dict[str, Any], bool]:
             (
                 capture.get("committed") is True,
                 capture.get("quality_status") == "WARN",
-                len(files) == 25,
+                len(files) == 35,
                 dict(modality_counts) == expected_modalities,
                 set(sidecars) == {"capture.json", "qc.json", "commit.json"},
                 preview.get("source") == "verified_committed_files",

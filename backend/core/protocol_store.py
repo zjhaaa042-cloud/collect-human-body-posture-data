@@ -30,6 +30,8 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 import cv2
 import numpy as np
 
+from ..storage.atomic_io import atomic_write_npy
+
 
 FRAME_COUNT = 5
 CAPTURE_POLICY_VERSION = "capture-policy-v1.0"
@@ -3063,6 +3065,14 @@ class ProtocolStore:
             frame_index = int(frame["frame_index"])
             frame_code = f"F{frame_index:02d}"
             basename = f"{subject_id}_{condition['condition_id']}_{frame_code}"
+            depth_scale_mm_per_unit = float(
+                frame.get("metadata", {}).get(
+                    "depth_scale",
+                    camera_metadata.get("depth_scale_mm_per_unit", 1.0),
+                )
+            )
+            if depth_scale_mm_per_unit <= 0:
+                raise ProtocolValidationError("depth scale must be positive for NPY storage")
             modalities: List[Tuple[str, str, np.ndarray]] = [
                 ("rgb", "rgb", frame["rgb"]),
                 ("depth_raw", "depth_raw", frame["depth_raw"]),
@@ -3097,8 +3107,34 @@ class ProtocolStore:
                     "size_bytes": stage_path.stat().st_size,
                     "sha256": self._sha256(stage_path),
                 }
+                if modality == "rgb":
+                    record.update(
+                        {
+                            "array_channel_order": color_order,
+                            "file_color_space": "sRGB",
+                            "png_decoder_channel_order": "implementation_defined",
+                        }
+                    )
                 frame_file_indexes.append(len(file_records))
                 file_records.append(record)
+                if modality in {"depth_raw", "depth_aligned"}:
+                    npy_filename = f"{basename}.npy"
+                    npy_stage_path = staging_dir / f"{directory_name}_npy" / npy_filename
+                    npy_integrity = atomic_write_npy(npy_stage_path, image)
+                    npy_relative_inside_attempt = npy_stage_path.relative_to(staging_dir)
+                    npy_final_path = final_dir / npy_relative_inside_attempt
+                    npy_dataset_relative = npy_final_path.relative_to(self.base_dir)
+                    npy_record = {
+                        "modality": f"{modality}_npy",
+                        "logical_modality": modality,
+                        "frame_index": frame_index,
+                        "path": npy_dataset_relative.as_posix(),
+                        **npy_integrity,
+                        "depth_scale_mm_per_unit": depth_scale_mm_per_unit,
+                        "value_semantics": "sensor_depth_units",
+                    }
+                    frame_file_indexes.append(len(file_records))
+                    file_records.append(npy_record)
             frame_records.append(
                 {
                     "frame_index": frame_index,
@@ -3134,7 +3170,12 @@ class ProtocolStore:
                 raise OSError(f"PNG byte write failed for {destination.name}")
             encoded_check = np.frombuffer(temporary.read_bytes(), dtype=np.uint8)
             decoded = cv2.imdecode(encoded_check, cv2.IMREAD_UNCHANGED)
-            if decoded is None or decoded.shape != image.shape or decoded.dtype != image.dtype:
+            if (
+                decoded is None
+                or decoded.shape != image.shape
+                or decoded.dtype != image.dtype
+                or not np.array_equal(decoded, image)
+            ):
                 raise OSError(f"PNG verification failed for {destination.name}")
             self._replace_path_with_windows_retry(
                 temporary,

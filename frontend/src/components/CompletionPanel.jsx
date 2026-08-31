@@ -20,7 +20,9 @@ export default function CompletionPanel({ state, report: returnedReport, busyAct
   const missingConditions = asList(progress.missing_angle_ids || report.missing_angle_ids);
   const missingMeasurements = asList(state.anthropometry?.missing_required);
   const blockers = asList(state.completion?.blockers);
-  const integrityErrors = asList(report.integrity_errors || state.completion?.integrity_errors);
+  const integrityErrors = asList(
+    report.integrity_errors || state.integrity?.errors || state.completion?.integrity_errors
+  );
   const invalidConditions = asList(report.invalid_condition_ids || state.completion?.invalid_condition_ids);
   const reportStatus = String(report.status || state.completion?.status || state.completion?.integrity_status || state.status || '').toUpperCase();
   const integrityFailed = ['CORRUPTED', 'INVALID', 'FAILED', 'FAIL'].includes(reportStatus)

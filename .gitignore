@@ -19,6 +19,9 @@ node_modules/
 
 # Build
 frontend/build/
+frontend/release/
+build/
+dist/
 
 # Downloaded vendor binaries
 tools/realsense/**/*.exe

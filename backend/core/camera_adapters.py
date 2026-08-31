@@ -357,6 +357,8 @@ class OrbbecCameraAdapter(CameraAdapter):
             }
         metadata = {
             "backend": self.backend,
+            "rgb_color_order": "RGB",
+            "rgb_transfer": "sRGB",
             "sdk": "pyorbbecsdk",
             "sdk_version": _package_version("pyorbbecsdk2"),
             "device": self._device or dict(self.manager.get_device_info() or {}),
@@ -654,6 +656,24 @@ class RealSenseCameraAdapter(CameraAdapter):
         except Exception:
             return None
 
+    def _rgb_array_from_frame(self, frame: Any) -> Optional[np.ndarray]:
+        if frame is None:
+            return None
+        profile = self._stream_profile_summary(frame)
+        source_format = str(profile.get("format") or "").lower()
+        if "rgb8" not in source_format:
+            self.last_error = (
+                f"RealSense 彩色流不是明确的 RGB8 格式：{source_format or 'unknown'}"
+            )
+            logger.error(self.last_error)
+            return None
+        array = self._array_from_frame(frame)
+        if array is None or array.dtype != np.uint8 or array.ndim != 3 or array.shape[2] != 3:
+            self.last_error = "RealSense RGB8 帧数组不是 uint8 HxWx3"
+            logger.error(self.last_error)
+            return None
+        return array
+
     @staticmethod
     def _intrinsics_from_frame(frame: Any) -> Optional[CameraIntrinsicsData]:
         if frame is None:
@@ -759,7 +779,7 @@ class RealSenseCameraAdapter(CameraAdapter):
             aligned_depth_frame = aligned_frames.get_depth_frame() if aligned_frames is not None else None
             color_frame = aligned_frames.get_color_frame() if aligned_frames is not None else raw_color_frame
 
-            color = self._array_from_frame(color_frame)
+            color = self._rgb_array_from_frame(color_frame)
             depth_raw = self._array_from_frame(raw_depth_frame)
             depth_aligned = self._array_from_frame(aligned_depth_frame)
             infrared = {
@@ -834,6 +854,8 @@ class RealSenseCameraAdapter(CameraAdapter):
 
             metadata = {
                 "backend": self.backend,
+                "rgb_color_order": "RGB",
+                "rgb_transfer": "sRGB",
                 "sdk": "pyrealsense2",
                 "sdk_version": str(
                     getattr(self.rs, "__version__", "")

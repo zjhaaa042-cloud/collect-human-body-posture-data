@@ -3,6 +3,7 @@ import { SaveOutlined } from '@ant-design/icons';
 import { Alert, Button, Collapse, Empty, Typography } from 'antd';
 import MeasurementItem from './MeasurementItem';
 import { recordsToDraft, validateMeasurements } from '../protocol/protocolUtils.mjs';
+import { dualWriteBlocked } from '../collector/dualSessionState.mjs';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -77,7 +78,7 @@ export default function Anthropometry({ definitions, state, busyAction, onSave }
       <Collapse className="optional-measurements" items={optionalPanel} />
       <div className="measurement-actions">
         <Text type="secondary">保存后仍可修改；完成门禁会再次核对所有必填项。</Text>
-        <Button type="primary" icon={<SaveOutlined />} loading={busyAction === 'measurements'} disabled={state.status === 'COMPLETE' || state.reconciliation_required === true} onClick={save}>校验并保存人体测量</Button>
+        <Button type="primary" icon={<SaveOutlined />} loading={busyAction === 'measurements'} disabled={dualWriteBlocked(state)} onClick={save}>校验并保存人体测量</Button>
       </div>
     </section>
   );

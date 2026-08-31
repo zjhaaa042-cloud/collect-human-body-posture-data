@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { SyncOutlined } from '@ant-design/icons';
 import { Alert, Button, Checkbox, Empty, InputNumber, Progress, Tag, Typography } from 'antd';
+import { dualIntegrityMessage, dualWriteBlocked } from '../collector/dualSessionState.mjs';
 
 const { Text, Title } = Typography;
 
@@ -12,6 +13,8 @@ export default function DualCaptureWorkspace({ cameraStatus, state, busyAction, 
   const captured = state?.progress?.captured || 0;
   const expected = state?.progress?.expected || 8;
   const dualReady = cameraStatus?.dual_ready === true;
+  const writeBlocked = dualWriteBlocked(state);
+  const integrityMessage = dualIntegrityMessage(state);
   const percent = Math.round(captured / expected * 100);
 
   useEffect(() => {
@@ -42,6 +45,15 @@ export default function DualCaptureWorkspace({ cameraStatus, state, busyAction, 
         message="每个角度由两台相机近同步采集，各保存 5 帧"
         description="每帧保存 RGB、原始/对齐深度、两类伪彩深度和带颜色 PLY 点云；不采集左右红外。"
       />
+      {integrityMessage && (
+        <Alert
+          type={state.reconciliation_required ? 'error' : 'info'}
+          showIcon
+          role={state.reconciliation_required ? 'alert' : 'status'}
+          message={state.reconciliation_required ? '任务已因完整性问题锁定' : '任务恢复信息'}
+          description={integrityMessage}
+        />
+      )}
       {nextYaw == null ? (
         <>
           <Alert type="success" showIcon message="八个角度均已采集完成" description="登记信息和八角度数据已经统一保存在当前受试者目录中。" />
@@ -56,8 +68,8 @@ export default function DualCaptureWorkspace({ cameraStatus, state, busyAction, 
               <InputNumber aria-label="本角度距离（毫米）" value={distance} onChange={setDistance} min={250} max={6000} step={50} precision={0} style={{ width: '100%' }} />
               <Text type="secondary">mm</Text>
             </div>
-            <Checkbox checked={ready} onChange={(event) => setReady(event.target.checked)}>已确认当前角度正确、全身完整入框且两台相机画面稳定</Checkbox>
-            <Button type="primary" size="large" block icon={<SyncOutlined />} loading={busyAction === 'capture-dual'} disabled={!dualReady || !ready} onClick={() => { onCapture(nextYaw, distance); setReady(false); }}>双机近同步采集此角度</Button>
+            <Checkbox disabled={writeBlocked} checked={ready} onChange={(event) => setReady(event.target.checked)}>已确认当前角度正确、全身完整入框且两台相机画面稳定</Checkbox>
+            <Button type="primary" size="large" block icon={<SyncOutlined />} loading={busyAction === 'capture-dual'} disabled={!dualReady || !ready || writeBlocked} onClick={() => { onCapture(nextYaw, distance); setReady(false); }}>双机近同步采集此角度</Button>
           </div>
           {!dualReady && <Alert type="warning" showIcon message="请在上方依次连接 Gemini 336L 与 D435i；两台均连接后会自动显示双画面预览。" />}
         </>

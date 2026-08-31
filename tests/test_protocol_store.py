@@ -404,19 +404,45 @@ class ProtocolStoreTestCase(unittest.TestCase):
         self.assertEqual(committed["disposition"], "PRIMARY")
         self.assertEqual(committed["anchor_frame"], "F03")
         self.assertEqual(len(committed["frames"]), 5)
-        self.assertEqual(len(committed["files"]), 20)
+        self.assertEqual(len(committed["files"]), 30)
         self.assertEqual(
             {entry["modality"] for entry in committed["files"]},
-            {"rgb", "depth_raw", "depth_aligned", "ir"},
+            {
+                "rgb", "depth_raw", "depth_aligned", "depth_raw_npy",
+                "depth_aligned_npy", "ir",
+            },
         )
         for entry in committed["files"]:
             path = self.base / Path(entry["path"])
             self.assertTrue(path.is_file(), path)
             self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), entry["sha256"])
-            self.assertIsNotNone(
-                cv2.imdecode(np.frombuffer(path.read_bytes(), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
-            )
+            if path.suffix == ".npy":
+                array = np.load(path, allow_pickle=False)
+                self.assertEqual(array.dtype, np.uint16)
+                self.assertEqual(entry["shape"], list(array.shape))
+                self.assertGreater(entry["depth_scale_mm_per_unit"], 0)
+            else:
+                self.assertIsNotNone(
+                    cv2.imdecode(np.frombuffer(path.read_bytes(), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+                )
             self.assertIn(f"S0001_{CONDITION_ID}_F", path.name)
+        for frame_index in range(1, 6):
+            for modality in ("depth_raw", "depth_aligned"):
+                png_record = next(
+                    item for item in committed["files"]
+                    if item["frame_index"] == frame_index and item["modality"] == modality
+                )
+                npy_record = next(
+                    item for item in committed["files"]
+                    if item["frame_index"] == frame_index and item["modality"] == f"{modality}_npy"
+                )
+                png = cv2.imdecode(
+                    np.frombuffer((self.base / png_record["path"]).read_bytes(), dtype=np.uint8),
+                    cv2.IMREAD_UNCHANGED,
+                )
+                np.testing.assert_array_equal(
+                    png, np.load(self.base / npy_record["path"], allow_pickle=False)
+                )
         attempt_dir = (self.base / committed["files"][0]["path"]).parent.parent
         self.assertTrue((attempt_dir / "commit.json").is_file())
         state = self.store.get_subject_state("S0001")
@@ -427,7 +453,7 @@ class ProtocolStoreTestCase(unittest.TestCase):
             [event["event"] for event in events],
             ["SUBJECT_CREATED", "CAPTURE_ATTEMPT_BEGUN", "CAPTURE_ATTEMPT_COMMITTED"],
         )
-        self.assertEqual(len(events[-1]["files"]), 20)
+        self.assertEqual(len(events[-1]["files"]), 30)
 
     def test_bad_capture_and_retake_are_both_preserved(self):
         self.create_subject()
@@ -707,7 +733,7 @@ class ProtocolStoreTestCase(unittest.TestCase):
             self.store.get_subject_state("S0001")["conditions"][CONDITION_ID]["status"],
             "REVIEW_REQUIRED",
         )
-        self.assertEqual(len(committed["files"]), 25)
+        self.assertEqual(len(committed["files"]), 35)
         self.assertEqual(
             sum(item["modality"] == "ir_left" for item in committed["files"]), 5
         )
