@@ -57,9 +57,6 @@ def core_anthropometry():
     for measurement_id in CORE_MEASUREMENT_IDS:
         if measurement_id == "M01":
             values[measurement_id] = [170.0, 170.2]
-        elif measurement_id == "M02":
-            # Weight deliberately has no third-measurement threshold.
-            values[measurement_id] = [60.0, 75.0]
         elif measurement_id == "M03":
             values[measurement_id] = [40.0, 40.4]
         else:
@@ -67,6 +64,8 @@ def core_anthropometry():
                 "measurement_1": 80.0,
                 "measurement_2": 80.8,
             }
+    # Optional values are still accepted and retain their repeat semantics.
+    values["M02"] = [60.0, 75.0]
     values["M14"] = None
     values["M15"] = ""
     return values
@@ -872,8 +871,8 @@ class ProtocolStoreTestCase(unittest.TestCase):
     def test_anthropometry_requires_repeats_and_calculates_closest_pair(self):
         self.create_subject()
         missing = core_anthropometry()
-        del missing["M13"]
-        with self.assertRaisesRegex(ProtocolValidationError, "M13"):
+        del missing["M12"]
+        with self.assertRaisesRegex(ProtocolValidationError, "M12"):
             self.store.save_anthropometry("S0001", missing)
 
         needs_third = core_anthropometry()
@@ -904,7 +903,7 @@ class ProtocolStoreTestCase(unittest.TestCase):
         self.assertEqual(latest["revision"], 2)
         reloaded = self.store.get_subject_state("S0001")
         self.assertTrue(reloaded["anthropometry"]["complete"])
-        self.assertEqual(len(reloaded["anthropometry"]["records"]), 13)
+        self.assertEqual(len(reloaded["anthropometry"]["records"]), 6)
 
     def test_frontend_records_and_bilateral_optional_fields_round_trip(self):
         self.create_subject()
@@ -932,7 +931,7 @@ class ProtocolStoreTestCase(unittest.TestCase):
             )
         saved = self.store.save_anthropometry("S0001", records)
         self.assertEqual(set(saved["measurements"]["M16"]), set(m16_fields))
-        self.assertEqual(len(saved["records"]), 15)
+        self.assertEqual(len(saved["records"]), 7)
         state_records = self.store.get_subject_state("S0001")["anthropometry"]["records"]
         self.assertEqual(
             {item["field_name"] for item in state_records if item["measurement_id"] == "M16"},
@@ -958,7 +957,7 @@ class ProtocolStoreTestCase(unittest.TestCase):
         self.assertEqual(complete["status"], "COMPLETE")
         self.assertTrue(complete["ready_to_complete"])
         self.assertEqual(complete["missing"], 0)
-        self.assertEqual(complete["anthro_completed"], 13)
+        self.assertEqual(complete["anthro_completed"], 5)
         with self.assertRaises(SubjectCompletedError):
             self.store.begin_capture_attempt("S0001", condition())
         with self.assertRaises(SubjectCompletedError):

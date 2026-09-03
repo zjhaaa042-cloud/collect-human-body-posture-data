@@ -168,11 +168,15 @@ class MeasurementDefinitionTests(unittest.TestCase):
     def test_required_and_optional_ranges(self) -> None:
         self.assertEqual(
             [item.measurement_id for item in required_measurements()],
-            [f"M{index:02d}" for index in range(1, 14)],
+            ["M01", "M03", "M06", "M09", "M12"],
         )
         self.assertEqual(
             [item.measurement_id for item in optional_measurements()],
-            [f"M{index:02d}" for index in range(14, 24)],
+            [
+                f"M{index:02d}"
+                for index in range(1, 24)
+                if index not in {1, 3, 6, 9, 12}
+            ],
         )
         self.assertEqual(len(measurement_definitions()), 23)
 

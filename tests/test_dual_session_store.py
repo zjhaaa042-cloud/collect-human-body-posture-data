@@ -106,6 +106,10 @@ class DualSessionStoreTests(unittest.TestCase):
                     })
             measured = store.save_anthropometry("S0002", records, definitions)
             self.assertTrue(measured["anthropometry"]["complete"])
+            self.assertEqual(
+                {item["measurement_id"] for item in measured["anthropometry"]["records"]},
+                {"M01", "M03", "M06", "M09", "M12"},
+            )
             self.assertTrue(measured["completion"]["can_complete"])
             completed = store.complete_session("S0002")
             self.assertEqual(completed["status"], "COMPLETE")

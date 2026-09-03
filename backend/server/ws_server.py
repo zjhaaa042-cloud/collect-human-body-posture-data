@@ -781,14 +781,33 @@ class WebSocketServer:
             (item for item in conditions if item["status"] != "CAPTURED"),
             None,
         )
+        protocol_snapshot = raw.get("protocol_snapshot")
+        frozen_measurements = (
+            protocol_snapshot.get("measurements", [])
+            if isinstance(protocol_snapshot, Mapping)
+            else []
+        )
+        required_measurement_ids = [
+            str(item.get("measurement_id") or "")
+            for item in frozen_measurements
+            if isinstance(item, Mapping) and bool(item.get("required"))
+        ]
+        if not required_measurement_ids:
+            required_measurement_ids = [
+                definition.measurement_id
+                for definition in measurement_definitions()
+                if definition.required
+            ]
         anthro_raw = dict(raw.get("anthropometry", {}))
         anthro_complete = anthro_raw.get("status") == "COMPLETE"
-        missing_required = [] if anthro_complete else [f"M{index:02d}" for index in range(1, 14)]
+        missing_required = [] if anthro_complete else required_measurement_ids
         blockers = []
         if missing:
             blockers.append(f"尚有 {missing} 个采集条件未通过")
         if not anthro_complete:
-            blockers.append("M01–M13 人工测量尚未完整通过校验")
+            blockers.append(
+                f"{len(required_measurement_ids)} 项必填人工测量尚未完整通过校验"
+            )
         completed = raw.get("status") == "COMPLETE"
         integrity_report = None
         if (not missing and anthro_complete) or completed:
@@ -799,12 +818,6 @@ class WebSocketServer:
                 completed = False
                 blockers.insert(0, "已完成数据的完整性复核失败，状态为 CORRUPTED")
         percent = round(captured * 100.0 / expected, 1) if expected else 0.0
-        protocol_snapshot = raw.get("protocol_snapshot")
-        frozen_measurements = (
-            protocol_snapshot.get("measurements", [])
-            if isinstance(protocol_snapshot, Mapping)
-            else []
-        )
         operator_id = str(raw.get("subject_metadata", {}).get("operator_id", ""))
         daily_equipment_check = None
         get_equipment_check = getattr(self.protocol_store, "get_equipment_check", None)
@@ -2831,7 +2844,7 @@ class WebSocketServer:
                 "success": False,
                 "operation_success": True,
                 "committed": False,
-                "error": "条件采集或 M01–M13 尚未闭环",
+                "error": "条件采集或必填人工测量尚未闭环",
                 "report": exc.report,
                 "state": state,
             }

@@ -87,7 +87,7 @@ class DualWorkflowService:
         if captured < len(angles):
             blockers.append(f"双机八角度尚未完成（{captured}/{len(angles)}）")
         if anthropometry.get("complete") is not True:
-            blockers.append("M01–M13 必填人体测量尚未完成")
+            blockers.append("5 项必填人体测量尚未完成")
         if state.get("reconciliation_required") is True:
             blockers.append("任务存在待恢复或完整性异常")
         completed = str(state.get("status") or "").upper() == "COMPLETE"

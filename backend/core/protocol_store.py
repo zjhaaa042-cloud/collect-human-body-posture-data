@@ -39,8 +39,14 @@ PROTOCOL_SNAPSHOT_SCHEMA_VERSION = "1.0"
 COMMIT_RECORD_FILENAME = "commit.json"
 _WINDOWS_ATOMIC_REPLACE_RETRY_DELAYS_SEC = (0.1, 0.25, 0.5, 1.0, 2.0)
 _WINDOWS_TRANSIENT_REPLACE_LOCK_ERRORS = {5, 32, 33}
-CORE_MEASUREMENT_IDS: Tuple[str, ...] = tuple(f"M{i:02d}" for i in range(1, 14))
-OPTIONAL_MEASUREMENT_IDS: Tuple[str, ...] = tuple(f"M{i:02d}" for i in range(14, 24))
+ALL_MEASUREMENT_IDS: Tuple[str, ...] = tuple(f"M{i:02d}" for i in range(1, 24))
+CORE_MEASUREMENT_IDS: Tuple[str, ...] = ("M01", "M03", "M06", "M09", "M12")
+OPTIONAL_MEASUREMENT_IDS: Tuple[str, ...] = tuple(
+    item for item in ALL_MEASUREMENT_IDS if item not in CORE_MEASUREMENT_IDS
+)
+LEGACY_CORE_MEASUREMENT_IDS: Tuple[str, ...] = tuple(
+    f"M{i:02d}" for i in range(1, 14)
+)
 REQUIRED_ANTHROPOMETRY_EQUIPMENT_FIELDS: Tuple[str, ...] = (
     "stadiometer_id",
     "scale_id",
@@ -129,18 +135,18 @@ try:
 except ImportError:  # pragma: no cover - standalone fallback for staged rollout
     _MEASUREMENT_DEFINITIONS = {
         "M01": {"fields": ("height_cm",), "unit": "cm", "kind": "height", "threshold": 0.5, "required": True},
-        "M02": {"fields": ("weight_kg",), "unit": "kg", "kind": "weight", "threshold": None, "required": True},
+        "M02": {"fields": ("weight_kg",), "unit": "kg", "kind": "weight", "threshold": None, "required": False},
         "M03": {"fields": ("biacromial_breadth_cm",), "unit": "cm", "threshold": 0.5, "required": True},
-        "M04": {"fields": ("shoulder_girth_cm",), "unit": "cm", "threshold": 1.0, "required": True},
-        "M05": {"fields": ("upper_chest_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
+        "M04": {"fields": ("shoulder_girth_cm",), "unit": "cm", "threshold": 1.0, "required": False},
+        "M05": {"fields": ("upper_chest_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M06": {"fields": ("nipple_chest_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
-        "M07": {"fields": ("underbust_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
-        "M08": {"fields": ("natural_waist_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
+        "M07": {"fields": ("underbust_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
+        "M08": {"fields": ("natural_waist_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M09": {"fields": ("midpoint_waist_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
-        "M10": {"fields": ("umbilical_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
-        "M11": {"fields": ("max_abdomen_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
+        "M10": {"fields": ("umbilical_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
+        "M11": {"fields": ("max_abdomen_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M12": {"fields": ("max_hip_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
-        "M13": {"fields": ("trochanter_pelvis_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
+        "M13": {"fields": ("trochanter_pelvis_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M14": {"fields": ("high_hip_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M15": {"fields": ("neck_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M16": {"fields": ("left_upper_arm_circumference_cm", "right_upper_arm_circumference_cm"), "unit": "cm", "threshold": 1.0, "required": False},
@@ -1693,10 +1699,11 @@ class ProtocolStore:
     ) -> Dict[str, Any]:
         """Append a validated anthropometry revision.
 
-        M01--M13 are mandatory.  Every core field needs two measurements; a
-        third is mandatory when the first two exceed the protocol threshold.
-        M02 (weight) deliberately has no third-measurement trigger.  M14--M23
-        may be omitted or set to ``None``/an empty string.
+        M01, M03, M06, M09 and M12 are mandatory for the current protocol.
+        Every supplied field needs two measurements; a third is mandatory when
+        the first two exceed the protocol threshold.  All other measurements
+        may be omitted or set to ``None``/an empty string.  Frozen legacy
+        snapshots continue to enforce their original M01--M13 requirement.
         """
 
         subject_id = self._validate_safe_id(subject_id, "subject_id")
@@ -1776,7 +1783,11 @@ class ProtocolStore:
                     "latest_revision": revision,
                     "latest_path": relative_path.as_posix(),
                     "latest_sha256": sha256,
-                    "completed_measurement_ids": list(CORE_MEASUREMENT_IDS),
+                    "completed_measurement_ids": [
+                        measurement_id
+                        for measurement_id in ALL_MEASUREMENT_IDS
+                        if measurement_definitions[measurement_id]["required"]
+                    ],
                 }
                 self._advance_state(state)
                 self._atomic_append_jsonl(
@@ -1945,7 +1956,7 @@ class ProtocolStore:
     ) -> Dict[str, Any]:
         measurement_snapshot: List[Dict[str, Any]] = []
         shared = globals().get("_SHARED_MEASUREMENTS", {})
-        for measurement_id in (*CORE_MEASUREMENT_IDS, *OPTIONAL_MEASUREMENT_IDS):
+        for measurement_id in ALL_MEASUREMENT_IDS:
             local = _MEASUREMENT_DEFINITIONS[measurement_id]
             definition = shared.get(measurement_id) if isinstance(shared, Mapping) else None
             item: Dict[str, Any] = {
@@ -3237,7 +3248,7 @@ class ProtocolStore:
             valid_range = item.get("valid_range", item.get("hard_range"))
             if (
                 measurement_id in definitions
-                or measurement_id not in {*CORE_MEASUREMENT_IDS, *OPTIONAL_MEASUREMENT_IDS}
+                or measurement_id not in set(ALL_MEASUREMENT_IDS)
                 or not isinstance(fields, list)
                 or not fields
                 or len(fields) != len(set(map(str, fields)))
@@ -3279,15 +3290,25 @@ class ProtocolStore:
                 "valid_range": (lower, upper),
                 "warning_threshold": item.get("repeat_warning_threshold"),
             }
-        expected_ids = {*CORE_MEASUREMENT_IDS, *OPTIONAL_MEASUREMENT_IDS}
+        expected_ids = set(ALL_MEASUREMENT_IDS)
         if set(definitions) != expected_ids:
             raise ProtocolStoreError(
                 "strict protocol snapshot must freeze M01–M23 definitions"
             )
-        if any(not definitions[item]["required"] for item in CORE_MEASUREMENT_IDS):
-            raise ProtocolStoreError("strict snapshot must require M01–M13")
-        if any(definitions[item]["required"] for item in OPTIONAL_MEASUREMENT_IDS):
-            raise ProtocolStoreError("strict snapshot must keep M14–M23 optional")
+        required_ids = {
+            measurement_id
+            for measurement_id, definition in definitions.items()
+            if definition["required"]
+        }
+        supported_required_sets = {
+            frozenset(CORE_MEASUREMENT_IDS),
+            frozenset(LEGACY_CORE_MEASUREMENT_IDS),
+        }
+        if frozenset(required_ids) not in supported_required_sets:
+            raise ProtocolStoreError(
+                "strict snapshot must require the current five measurements "
+                "or the frozen legacy M01–M13 set"
+            )
         return definitions
 
     def _validate_anthropometry_metadata(
@@ -3340,6 +3361,21 @@ class ProtocolStore:
 
         measurement_definitions = (
             dict(definitions) if definitions is not None else self._default_measurement_definitions()
+        )
+        ordered_measurement_ids = tuple(
+            measurement_id
+            for measurement_id in ALL_MEASUREMENT_IDS
+            if measurement_id in measurement_definitions
+        )
+        required_measurement_ids = tuple(
+            measurement_id
+            for measurement_id in ordered_measurement_ids
+            if bool(measurement_definitions[measurement_id].get("required"))
+        )
+        optional_measurement_ids = tuple(
+            measurement_id
+            for measurement_id in ordered_measurement_ids
+            if measurement_id not in required_measurement_ids
         )
         field_to_measurement_id = {
             str(field_name).lower(): measurement_id
@@ -3448,7 +3484,7 @@ class ProtocolStore:
                 add(measurement_id, field_name, raw_record)
 
         missing_required: List[str] = []
-        for measurement_id in CORE_MEASUREMENT_IDS:
+        for measurement_id in required_measurement_ids:
             for field_name in measurement_definitions[measurement_id]["fields"]:
                 if (measurement_id, field_name) not in field_inputs:
                     missing_required.append(f"{measurement_id}::{field_name}")
@@ -3459,7 +3495,7 @@ class ProtocolStore:
 
         # Optional measurements may be completely absent, but bilateral items
         # cannot be half-filled because that would silently bias left/right GT.
-        for measurement_id in OPTIONAL_MEASUREMENT_IDS:
+        for measurement_id in optional_measurement_ids:
             fields = measurement_definitions[measurement_id]["fields"]
             present = [field for field in fields if (measurement_id, field) in field_inputs]
             if present and len(present) != len(fields):
@@ -3470,7 +3506,7 @@ class ProtocolStore:
 
         normalized: Dict[str, Any] = {}
         records: List[Dict[str, Any]] = []
-        for measurement_id in (*CORE_MEASUREMENT_IDS, *OPTIONAL_MEASUREMENT_IDS):
+        for measurement_id in ordered_measurement_ids:
             definition = measurement_definitions[measurement_id]
             fields = definition["fields"]
             field_results: Dict[str, Dict[str, Any]] = {}
@@ -3952,6 +3988,11 @@ class ProtocolStore:
         self, state: MutableMapping[str, Any]
     ) -> Tuple[bool, List[str]]:
         definitions = self._measurement_definitions_from_state(state)
+        required_measurement_ids = tuple(
+            measurement_id
+            for measurement_id in ALL_MEASUREMENT_IDS
+            if definitions[measurement_id]["required"]
+        )
         directory = self._subject_dir(state["subject_id"]) / "meta" / "anthropometry"
         if not directory.exists():
             return False, []
@@ -4010,7 +4051,7 @@ class ProtocolStore:
                 }
                 missing = [
                     f"{measurement_id}::{field_name}"
-                    for measurement_id in CORE_MEASUREMENT_IDS
+                    for measurement_id in required_measurement_ids
                     for field_name in definitions[measurement_id]["fields"]
                     if (measurement_id, field_name) not in present
                 ]
@@ -4041,7 +4082,7 @@ class ProtocolStore:
             "latest_revision": latest_revision,
             "latest_path": relative,
             "latest_sha256": self._sha256(latest_path),
-            "completed_measurement_ids": list(CORE_MEASUREMENT_IDS),
+            "completed_measurement_ids": list(required_measurement_ids),
         }
         if state.get("anthropometry") == expected:
             return False, errors
@@ -4152,6 +4193,12 @@ class ProtocolStore:
 
     def _state_with_anthropometry(self, state: Mapping[str, Any]) -> Dict[str, Any]:
         enriched = self._copy_json(state)
+        definitions = self._measurement_definitions_from_state(enriched)
+        required_measurement_ids = [
+            measurement_id
+            for measurement_id in ALL_MEASUREMENT_IDS
+            if definitions[measurement_id]["required"]
+        ]
         anthro_state = dict(enriched.get("anthropometry", {}))
         latest_path = anthro_state.get("latest_path")
         latest_record: Optional[Dict[str, Any]] = None
@@ -4169,7 +4216,7 @@ class ProtocolStore:
             latest_record = self._read_json(path)
         anthro_state["complete"] = anthro_state.get("status") == "COMPLETE"
         anthro_state["missing_required"] = (
-            [] if anthro_state["complete"] else list(CORE_MEASUREMENT_IDS)
+            [] if anthro_state["complete"] else required_measurement_ids
         )
         anthro_state["records"] = latest_record.get("records", []) if latest_record else []
         anthro_state["measurements"] = (
@@ -4392,6 +4439,11 @@ class ProtocolStore:
             definitions = self._measurement_definitions_from_state(state)
         except ProtocolStoreError as exc:
             return [f"anthropometry frozen-definition validation failed: {exc}"]
+        required_measurement_ids = tuple(
+            measurement_id
+            for measurement_id in ALL_MEASUREMENT_IDS
+            if definitions[measurement_id]["required"]
+        )
         anthropometry = state.get("anthropometry", {})
         if anthropometry.get("status") != "COMPLETE":
             return []
@@ -4432,7 +4484,7 @@ class ProtocolStore:
             if isinstance(item, Mapping)
         }
         missing = []
-        for measurement_id in CORE_MEASUREMENT_IDS:
+        for measurement_id in required_measurement_ids:
             for field_name in definitions[measurement_id]["fields"]:
                 if (measurement_id, field_name) not in present:
                     missing.append(f"{measurement_id}::{field_name}")
@@ -4589,6 +4641,16 @@ class ProtocolStore:
 
     def _build_completion_report(self, state: Mapping[str, Any]) -> Dict[str, Any]:
         expected = list(state["expected_condition_ids"])
+        try:
+            definitions = self._measurement_definitions_from_state(state)
+            required_measurement_ids = tuple(
+                measurement_id
+                for measurement_id in ALL_MEASUREMENT_IDS
+                if definitions[measurement_id]["required"]
+            )
+        except ProtocolStoreError:
+            # The integrity report below will retain the frozen-definition error.
+            required_measurement_ids = CORE_MEASUREMENT_IDS
         integrity_by_condition: Dict[str, List[str]] = {}
         captured = []
         for condition_id in expected:
@@ -4660,8 +4722,8 @@ class ProtocolStore:
             "failed_attempts": failed_attempts,
             "warnings": len(warning_attempts),
             "warning_attempts": warning_attempts,
-            "anthro_required": len(CORE_MEASUREMENT_IDS),
-            "anthro_completed": len(CORE_MEASUREMENT_IDS) if anthro_complete else 0,
+            "anthro_required": len(required_measurement_ids),
+            "anthro_completed": len(required_measurement_ids) if anthro_complete else 0,
             "anthropometry_complete": anthro_complete,
             "anthropometry_revision": anthro.get("latest_revision"),
             "subject_state_revision": state["revision"],

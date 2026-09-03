@@ -649,7 +649,7 @@ class ProtocolWebSocketTests(unittest.IsolatedAsyncioTestCase):
         })
         state = self.server._protocol_subject_state("S0001")
         self.assertTrue(state["anthropometry"]["complete"])
-        self.assertEqual(len(state["anthropometry"]["records"]), 13)
+        self.assertEqual(len(state["anthropometry"]["records"]), 5)
 
     async def test_subject_creation_allows_omitting_operator_id(self):
         state = await self.server._create_protocol_subject(None, {

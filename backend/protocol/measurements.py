@@ -10,58 +10,60 @@ def _measurement_definitions() -> tuple[MeasurementDefinition, ...]:
     return (
         MeasurementDefinition(
             "M01", ("height_cm",), "身高", "height", "cm", True, 0.5,
-            ("stadiometer",), "赤脚，按统一头位直立测量。",
+            ("stadiometer",),
+            "赤足、脚跟并拢、身体直立，头保持 Frankfurt plane；测量地面到头顶点 Vertex。",
         ),
         MeasurementDefinition(
-            "M02", ("weight_kg",), "体重", "weight", "kg", True, None,
+            "M02", ("weight_kg",), "体重", "weight", "kg", False, None,
             ("calibrated_scale",),
             "穿标准轻薄采集服；原规范未给第三测阈值，两次差异只记录和警告。",
         ),
         MeasurementDefinition(
-            "M03", ("biacromial_breadth_cm",), "肩峰间直线肩宽", "breadth", "cm",
+            "M03", ("biacromial_breadth_cm",), "肩峰间宽", "breadth", "cm",
             True, 0.5, ("anthropometer_or_large_sliding_caliper",),
-            "必须测直线距离，禁止用软尺沿背部弧面代替。",
+            "定位左、右 Acromion 肩峰点，测量两点间直线距离；禁止用软尺沿皮肤绕量。",
         ),
         MeasurementDefinition(
-            "M04", ("shoulder_girth_cm",), "肩围", "circumference", "cm", True, 1.0,
+            "M04", ("shoulder_girth_cm",), "肩围", "circumference", "cm", False, 1.0,
             tape, "软尺环绕左右三角肌最突出位置。",
         ),
         MeasurementDefinition(
             "M05", ("upper_chest_circumference_cm",), "上胸围", "circumference", "cm",
-            True, 1.0, tape, "靠近腋下的水平面。",
+            False, 1.0, tape, "靠近腋下的水平面。",
         ),
         MeasurementDefinition(
-            "M06", ("nipple_chest_circumference_cm",), "乳头水平胸围/胸部最大围",
-            "circumference", "cm", True, 1.0, tape, "在正常呼气末测量。",
+            "M06", ("nipple_chest_circumference_cm",), "胸围",
+            "circumference", "cm", True, 1.0, tape,
+            "取左右 thelion（乳头点）的平均高度，在该水平面绕身体一圈；软尺水平、贴身不勒，正常呼气末读数。",
         ),
         MeasurementDefinition(
             "M07", ("underbust_circumference_cm",), "下胸围", "circumference", "cm",
-            True, 1.0, tape, "胸部下缘水平。",
+            False, 1.0, tape, "胸部下缘水平。",
         ),
         MeasurementDefinition(
             "M08", ("natural_waist_circumference_cm",), "自然腰围", "circumference", "cm",
-            True, 1.0, tape, "人体自然最窄腰部。",
+            False, 1.0, tape, "人体自然最窄腰部。",
         ),
         MeasurementDefinition(
-            "M09", ("midpoint_waist_circumference_cm",), "肋缘-髂嵴中点腰围",
+            "M09", ("midpoint_waist_circumference_cm",), "腰围",
             "circumference", "cm", True, 1.0, tape,
-            "最低肋缘与髂嵴之间中点的水平围度。",
+            "左右两侧分别取最低可触肋骨与髂嵴最高点之间的中点，以左右中点确定水平面并绕量一圈。",
         ),
         MeasurementDefinition(
             "M10", ("umbilical_circumference_cm",), "脐围", "circumference", "cm",
-            True, 1.0, tape, "经过肚脐水平。",
+            False, 1.0, tape, "经过肚脐水平。",
         ),
         MeasurementDefinition(
             "M11", ("max_abdomen_circumference_cm",), "最大腹围", "circumference", "cm",
-            True, 1.0, tape, "腹部最大水平围度。",
+            False, 1.0, tape, "腹部最大水平围度。",
         ),
         MeasurementDefinition(
-            "M12", ("max_hip_circumference_cm",), "最大臀围", "circumference", "cm",
-            True, 1.0, tape, "经过臀部最大后突位置。",
+            "M12", ("max_hip_circumference_cm",), "臀围", "circumference", "cm",
+            True, 1.0, tape, "保持软尺水平并上下移动，寻找臀部最大水平周长，取最大值。",
         ),
         MeasurementDefinition(
             "M13", ("trochanter_pelvis_circumference_cm",), "大转子/骨盆围",
-            "circumference", "cm", True, 1.0, tape, "经过左右大转子附近。",
+            "circumference", "cm", False, 1.0, tape, "经过左右大转子附近。",
         ),
         MeasurementDefinition(
             "M14", ("high_hip_circumference_cm",), "上臀围", "circumference", "cm",
@@ -128,12 +130,12 @@ def measurement_definitions() -> tuple[MeasurementDefinition, ...]:
 
 
 def required_measurements() -> tuple[MeasurementDefinition, ...]:
-    """返回必须完整填写的 M01–M13。"""
+    """返回必须完整填写的五项人工测量。"""
 
     return tuple(item for item in MEASUREMENT_DEFINITIONS if item.required)
 
 
 def optional_measurements() -> tuple[MeasurementDefinition, ...]:
-    """返回允许整项留空的 M14–M23。"""
+    """返回允许整项留空的其余人工测量。"""
 
     return tuple(item for item in MEASUREMENT_DEFINITIONS if not item.required)

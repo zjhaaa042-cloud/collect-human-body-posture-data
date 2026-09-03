@@ -411,7 +411,7 @@ class DualSessionStore:
         if captured < len(DUAL_ANGLES):
             blockers.append(f"双机八角度尚未完成（{captured}/{len(DUAL_ANGLES)}）")
         if state.get("anthropometry", {}).get("complete") is not True:
-            blockers.append("M01–M13 必填人体测量尚未完成")
+            blockers.append("5 项必填人体测量尚未完成")
         state["completion"] = {
             "can_complete": not blockers and state.get("status") != "COMPLETE",
             "completed": state.get("status") == "COMPLETE",

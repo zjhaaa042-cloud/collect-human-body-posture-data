@@ -82,7 +82,7 @@ export default function CompletionPanel({ state, report: returnedReport, busyAct
           {canComplete ? '允许完成' : '已锁定'}
         </Tag>
       </div>
-      <Paragraph type="secondary">只有双机八个角度全部成功落盘、M01–M13 必填测量完成且服务端检查通过，才允许结束该受试者任务。</Paragraph>
+      <Paragraph type="secondary">只有双机八个角度全部成功落盘、5 项必填测量（M01、M03、M06、M09、M12）完成且服务端检查通过，才允许结束该受试者任务。</Paragraph>
       <div className="gate-summary">
         <div><Text type="secondary">双机八角度</Text><strong>{progress.captured ?? 0}/{progress.expected ?? 8}</strong></div>
         <div><Text type="secondary">必填测量</Text><strong>{measurementsComplete ? '已完成' : '未完成'}</strong></div>
