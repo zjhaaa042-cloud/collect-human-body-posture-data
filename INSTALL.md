@@ -106,7 +106,7 @@ npm run electron:dev
 生成文件：
 
 ```text
-frontend\release\BodyPostureCollector-Setup-1.0.3.exe
+frontend\release\BodyPostureCollector-Setup-1.0.4.exe
 ```
 
 安装包包含前端、Electron、本项目 Python 后端及相机 Python SDK。安装后的默认可写数据目录为 `%USERPROFILE%\Documents\BodyPostureCollectorData`，运行配置和日志位于 Electron 用户数据目录。硬件厂商的 Windows USB/相机驱动仍需在采集电脑上正确安装。
