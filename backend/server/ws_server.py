@@ -921,8 +921,9 @@ class WebSocketServer:
 
     def _apply_dual_distance_target(self, state: Mapping[str, Any]) -> None:
         target = state.get("target_distance_mm")
-        if target not in {None, ""}:
-            self._configure_distance_target(float(target))
+        # An optional blank distance must not inherit the previous subject's
+        # target. Match the dual setup form's suggested distance instead.
+        self._configure_distance_target(2500.0 if target in {None, ""} else float(target))
 
     async def _send_protocol_state(self, websocket, subject_id: str):
         state = self._protocol_subject_state(subject_id)
