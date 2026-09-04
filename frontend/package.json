@@ -1,6 +1,6 @@
 {
   "name": "body-posture-collector",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "人体体态数据采集系统",
   "main": "electron-main.js",
   "scripts": {

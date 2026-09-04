@@ -112,7 +112,7 @@ cd ..
 脚本会使用 PyInstaller 生成内置 Python 后端，再构建前端并通过 Electron Builder 生成安装包：
 
 ```text
-frontend/release/BodyPostureCollector-Setup-1.0.3.exe
+frontend/release/BodyPostureCollector-Setup-1.0.4.exe
 ```
 
 安装后的应用不要求操作员另行安装 Python、Node.js 或执行 `go.bat`。应用会自动启动本地采集后端并等待健康检查；正常退出时也会安全关闭后端。默认数据目录为用户“文档”下的 `BodyPostureCollectorData`，双机流程仍可在界面中选择其他输出目录。
