@@ -115,7 +115,8 @@ class IncompleteSubjectError(ProtocolStoreError):
         )
 
 
-# Core field aliases and repeat thresholds from RealAnthro-RGBD-v1 V1.0.
+# Canonical field aliases and current project repeat thresholds.  Frozen subject
+# snapshots retain the values in effect when that subject was created.
 # M02 has no third-measurement trigger in the protocol.
 try:
     # The shared dictionary is the single source of truth for field names,
@@ -134,18 +135,18 @@ try:
     }
 except ImportError:  # pragma: no cover - standalone fallback for staged rollout
     _MEASUREMENT_DEFINITIONS = {
-        "M01": {"fields": ("height_cm",), "unit": "cm", "kind": "height", "threshold": 0.5, "required": True},
+        "M01": {"fields": ("height_cm",), "unit": "cm", "kind": "height", "threshold": 1.0, "required": True},
         "M02": {"fields": ("weight_kg",), "unit": "kg", "kind": "weight", "threshold": None, "required": False},
-        "M03": {"fields": ("biacromial_breadth_cm",), "unit": "cm", "threshold": 0.5, "required": True},
+        "M03": {"fields": ("biacromial_breadth_cm",), "unit": "cm", "threshold": 1.0, "required": True},
         "M04": {"fields": ("shoulder_girth_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M05": {"fields": ("upper_chest_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
-        "M06": {"fields": ("nipple_chest_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
+        "M06": {"fields": ("nipple_chest_circumference_cm",), "unit": "cm", "threshold": 2.0, "required": True},
         "M07": {"fields": ("underbust_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M08": {"fields": ("natural_waist_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
-        "M09": {"fields": ("midpoint_waist_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
+        "M09": {"fields": ("midpoint_waist_circumference_cm",), "unit": "cm", "threshold": 1.5, "required": True},
         "M10": {"fields": ("umbilical_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M11": {"fields": ("max_abdomen_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
-        "M12": {"fields": ("max_hip_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": True},
+        "M12": {"fields": ("max_hip_circumference_cm",), "unit": "cm", "threshold": 1.5, "required": True},
         "M13": {"fields": ("trochanter_pelvis_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M14": {"fields": ("high_hip_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},
         "M15": {"fields": ("neck_circumference_cm",), "unit": "cm", "threshold": 1.0, "required": False},

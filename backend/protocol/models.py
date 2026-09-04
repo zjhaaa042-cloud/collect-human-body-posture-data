@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from itertools import combinations
 from typing import Any, Mapping, Sequence
@@ -18,6 +19,81 @@ CLOTHING_IDS = frozenset({"CF", "CN"})
 MEASUREMENT_KINDS = frozenset(
     {"height", "weight", "breadth", "circumference", "length"}
 )
+
+
+def reduce_measurement_readings(
+    values: Sequence[float],
+    threshold: float | None,
+) -> dict[str, Any]:
+    """Reduce two or three repeat readings without discarding the raw values.
+
+    Two readings are averaged when they are within the configured project
+    threshold.  A third reading is required otherwise.  Three readings use the
+    closest pair; when two pairs tie, all three values are averaged so that the
+    result does not depend on entry order.  A still-wide three-reading result is
+    retained with ``REVIEW_REQUIRED`` rather than blocking field collection.
+    """
+
+    numeric = tuple(float(value) for value in values)
+    if len(numeric) not in {2, 3}:
+        raise ValueError("必须提供两次或三次测量值")
+    if any(not math.isfinite(value) or value <= 0 for value in numeric):
+        raise ValueError("测量值必须是大于 0 的有限数")
+    numeric_threshold = float(threshold) if threshold is not None else None
+    if numeric_threshold is not None and (
+        not math.isfinite(numeric_threshold) or numeric_threshold <= 0
+    ):
+        raise ValueError("复测阈值必须大于 0")
+
+    first_two_difference = abs(numeric[0] - numeric[1])
+    third_required = (
+        numeric_threshold is not None and first_two_difference > numeric_threshold
+    )
+    if len(numeric) == 2:
+        if third_required:
+            raise ValueError("前两次差值超阈值，必须录入第三次测量")
+        return {
+            "final_value": sum(numeric) / 2.0,
+            "selected_trial_indices": [1, 2],
+            "selected_difference": first_two_difference,
+            "closest_pair_difference": first_two_difference,
+            "first_two_difference": first_two_difference,
+            "third_measurement_required": False,
+            "reduction_rule": "MEAN_FIRST_TWO",
+            "qc_status": "PASS_2",
+        }
+
+    pairs = tuple(combinations(range(3), 2))
+    differences = {
+        pair: abs(numeric[pair[0]] - numeric[pair[1]]) for pair in pairs
+    }
+    closest_difference = min(differences.values())
+    closest_pairs = tuple(
+        pair
+        for pair, difference in differences.items()
+        if math.isclose(difference, closest_difference, rel_tol=0.0, abs_tol=1e-9)
+    )
+    if len(closest_pairs) == 1:
+        selected = closest_pairs[0]
+        reduction_rule = "MEAN_CLOSEST_PAIR"
+    else:
+        selected = (0, 1, 2)
+        reduction_rule = "MEAN_ALL_THREE_TIE"
+    selected_values = tuple(numeric[index] for index in selected)
+    selected_difference = max(selected_values) - min(selected_values)
+    within_threshold = (
+        numeric_threshold is None or closest_difference <= numeric_threshold
+    )
+    return {
+        "final_value": sum(selected_values) / len(selected_values),
+        "selected_trial_indices": [index + 1 for index in selected],
+        "selected_difference": selected_difference,
+        "closest_pair_difference": closest_difference,
+        "first_two_difference": first_two_difference,
+        "third_measurement_required": third_required,
+        "reduction_rule": reduction_rule,
+        "qc_status": "PASS_3" if within_threshold else "REVIEW_REQUIRED",
+    }
 
 
 def _require_plain_int(value: object, field_name: str) -> int:
@@ -139,28 +215,19 @@ class MeasurementDefinition:
         return abs(float(first) - float(second)) > self.third_measurement_threshold
 
     def final_value(self, values: Sequence[float]) -> float:
-        """按 V1 规则计算最终 GT。
+        """按当前复测规则计算最终 GT。
 
         两次合格读数取均值；若两次差值超阈值，则必须提供第三次，并选择差值
-        最小的一对取均值。所有原始读数仍必须另外持久化。
+        最小的一对取均值。所有原始读数仍必须另外持久化；三次仍分散时由
+        调用方同时保留 ``REVIEW_REQUIRED`` 状态。
         """
 
-        numeric = tuple(float(value) for value in values)
-        if len(numeric) not in {2, 3}:
-            raise ValueError("必须提供两次或三次测量值")
-        if any(value <= 0 for value in numeric):
-            raise ValueError("测量值必须大于 0")
-        if len(numeric) == 2:
-            if self.needs_third_measurement(numeric[0], numeric[1]):
-                raise ValueError("前两次差值超阈值，必须录入第三次测量")
-            return sum(numeric) / 2
-
-        indexed_pairs = combinations(enumerate(numeric), 2)
-        (_, first), (_, second) = min(
-            indexed_pairs,
-            key=lambda pair: (abs(pair[0][1] - pair[1][1]), pair[0][0], pair[1][0]),
+        return float(
+            reduce_measurement_readings(
+                values,
+                self.third_measurement_threshold,
+            )["final_value"]
         )
-        return (first + second) / 2
 
     def missing_fields(self, values: Mapping[str, object]) -> tuple[str, ...]:
         """返回此项目尚未填写的数据库字段名。"""

@@ -32,7 +32,7 @@ const statusLabels = {
   unstable: '请保持姿态稳定'
 };
 
-const DistanceIndicator = ({ distanceInfo }) => {
+const DistanceIndicator = ({ distanceInfo, sourceLabel = '' }) => {
   if (!distanceInfo) return null;
 
   const status = distanceInfo.status || 'no_data';
@@ -45,6 +45,7 @@ const DistanceIndicator = ({ distanceInfo }) => {
       <div className="distance-summary">
         <RadarChartOutlined />
         <div>
+          {sourceLabel && <Text type="secondary" className="distance-source-label">{sourceLabel}</Text>}
           <span className="distance-value">{distanceM}</span>
           <span className="distance-unit">米</span>
         </div>
@@ -62,11 +63,12 @@ const imageSource = (value) => value ? `data:image/jpeg;base64,${value}` : null;
 
 const CameraPreview = ({ cameraCode, preview, placeholderText, isCapturing }) => {
   const cameraName = cameraCode === 'CD435I' ? 'D435i' : 'Gemini 336L';
+  const cameraRole = cameraCode === 'CD435I' ? '辅助 · FOV 有限' : '主视角 · 全身';
   const colorSrc = imageSource(preview?.color);
   const depthSrc = imageSource(preview?.depth);
   return (
     <section className="camera-preview-group" aria-label={`${cameraName} 实时预览`}>
-      <div className="camera-preview-title"><Text strong>{cameraName}</Text><Tag color={preview?.available ? 'success' : 'default'}>{preview?.available ? '实时' : '无画面'}</Tag></div>
+      <div className="camera-preview-title"><Text strong>{cameraName}</Text><Tag color="blue">{cameraRole}</Tag><Tag color={preview?.available ? 'success' : 'default'}>{preview?.available ? '实时' : '无画面'}</Tag></div>
       <div className="preview-window">
         <div className="preview-label"><EyeOutlined /> RGB 彩色画面</div>
         {colorSrc ? <img src={colorSrc} alt={`${cameraName} RGB 彩色预览`} className="preview-image" /> : <div className="preview-placeholder"><VideoCameraOutlined /><Text type="secondary">{placeholderText}</Text></div>}
@@ -137,7 +139,10 @@ const PreviewPanel = ({ previewData, previewStatus, distanceInfo, isCapturing, c
           <div className="preview-window"><div className="preview-label"><EyeOutlined /> 深度画面</div>{depthSrc ? <img src={depthSrc} alt="深度预览" className="preview-image" /> : <div className="preview-placeholder"><VideoCameraOutlined /><Text type="secondary">{placeholderText}</Text></div>}</div>
         </div>}
 
-        <DistanceIndicator distanceInfo={distanceInfo} />
+        <DistanceIndicator
+          distanceInfo={distanceInfo}
+          sourceLabel={dualPreviews ? 'Gemini 主视角距离/质量（会话默认目标）' : ''}
+        />
       </Card>
     </div>
   );

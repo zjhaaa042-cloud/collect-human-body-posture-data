@@ -70,6 +70,60 @@ export const needsThirdReading = (definition, values = {}) => {
   return Math.abs(first - second) > Number(threshold);
 };
 
+export const reduceMeasurementReadings = (definition, values = {}) => {
+  const first = parsePositive(values.m1);
+  const second = parsePositive(values.m2);
+  const third = parsePositive(values.m3);
+  if (!Number.isFinite(first) || !Number.isFinite(second)) {
+    throw new Error('请填写两次大于 0 的有效读数');
+  }
+  if (values.m3 !== '' && values.m3 != null && !Number.isFinite(third)) {
+    throw new Error('第三次读数必须大于 0');
+  }
+
+  const thresholdValue = definition?.third_measurement_threshold;
+  const threshold = thresholdValue == null ? null : Number(thresholdValue);
+  if (threshold != null && (!Number.isFinite(threshold) || threshold <= 0)) {
+    throw new Error('复测阈值必须大于 0');
+  }
+
+  const readings = Number.isFinite(third) ? [first, second, third] : [first, second];
+  const firstTwoDifference = Math.abs(first - second);
+  const thirdRequired = threshold != null && firstTwoDifference > threshold;
+  if (readings.length === 2) {
+    if (thirdRequired) throw new Error('前两次差值超阈值，必须录入第三次测量');
+    return {
+      final_value: (first + second) / 2,
+      selected_trial_indices: [1, 2],
+      selected_difference: firstTwoDifference,
+      closest_pair_difference: firstTwoDifference,
+      first_two_difference: firstTwoDifference,
+      third_measurement_required: false,
+      reduction_rule: 'MEAN_FIRST_TWO',
+      qc_status: 'PASS_2'
+    };
+  }
+
+  const pairs = [[0, 1], [0, 2], [1, 2]];
+  const pairDifferences = pairs.map(([left, right]) => Math.abs(readings[left] - readings[right]));
+  const closestDifference = Math.min(...pairDifferences);
+  const closestPairs = pairs.filter((_, index) => (
+    Math.abs(pairDifferences[index] - closestDifference) <= 1e-9
+  ));
+  const selected = closestPairs.length === 1 ? closestPairs[0] : [0, 1, 2];
+  const selectedValues = selected.map((index) => readings[index]);
+  return {
+    final_value: selectedValues.reduce((sum, value) => sum + value, 0) / selectedValues.length,
+    selected_trial_indices: selected.map((index) => index + 1),
+    selected_difference: Math.max(...selectedValues) - Math.min(...selectedValues),
+    closest_pair_difference: closestDifference,
+    first_two_difference: firstTwoDifference,
+    third_measurement_required: thirdRequired,
+    reduction_rule: closestPairs.length === 1 ? 'MEAN_CLOSEST_PAIR' : 'MEAN_ALL_THREE_TIE',
+    qc_status: threshold == null || closestDifference <= threshold ? 'PASS_3' : 'REVIEW_REQUIRED'
+  };
+};
+
 export const validateMeasurements = (definitions = [], draft = {}) => {
   const errors = {};
   const records = [];
@@ -98,6 +152,14 @@ export const validateMeasurements = (definitions = [], draft = {}) => {
       if (needsThirdReading(row, values) && !Number.isFinite(third)) {
         rowErrors.push(`前两次差值超过 ${row.third_measurement_threshold}${row.unit}，必须填写第三次`);
       }
+      let reduction = null;
+      if (!rowErrors.length) {
+        try {
+          reduction = reduceMeasurementReadings(row, values);
+        } catch (error) {
+          rowErrors.push(error instanceof Error ? error.message : '无法归约测量读数');
+        }
+      }
       if (rowErrors.length) {
         errors[key] = rowErrors.join('；');
         return;
@@ -106,7 +168,8 @@ export const validateMeasurements = (definitions = [], draft = {}) => {
         measurement_id: row.measurement_id,
         field_name: row.field_name,
         m1: first,
-        m2: second
+        m2: second,
+        ...reduction
       };
       if (Number.isFinite(third)) record.m3 = third;
       records.push(record);

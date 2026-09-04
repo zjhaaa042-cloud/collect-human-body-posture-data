@@ -876,12 +876,12 @@ class ProtocolStoreTestCase(unittest.TestCase):
             self.store.save_anthropometry("S0001", missing)
 
         needs_third = core_anthropometry()
-        needs_third["M01"] = [170.0, 171.0]
+        needs_third["M01"] = [170.0, 171.1]
         with self.assertRaisesRegex(ProtocolValidationError, "measurement_3"):
             self.store.save_anthropometry("S0001", needs_third)
 
         values = core_anthropometry()
-        values["M01"] = [170.0, 171.0, 170.2]
+        values["M01"] = [170.0, 171.1, 170.2]
         values["M04"] = [80.0, 81.5, 80.4]
         record = self.store.save_anthropometry("S0001", values)
         self.assertEqual(record["measurements"]["M01"]["final_value"], 170.1)
@@ -1394,7 +1394,7 @@ class ProtocolStoreTestCase(unittest.TestCase):
         )
         self.assertEqual(m01_record["field_name"], "height_cm")
         self.assertEqual(
-            saved["measurements"]["M01"]["third_measurement_threshold"], 0.5
+            saved["measurements"]["M01"]["third_measurement_threshold"], 1.0
         )
 
     def test_review_and_anthropometry_post_file_failures_reconcile_in_process(self):

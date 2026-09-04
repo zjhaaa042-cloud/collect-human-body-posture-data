@@ -180,6 +180,36 @@ class ProtocolWebSocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.server.depth_analyzer.max_distance, 3300.0)
         self.server.depth_analyzer.reset.assert_called_once_with()
 
+    def test_dual_preview_distance_uses_session_target(self):
+        self.server.depth_analyzer = SimpleNamespace(
+            target=1500.0,
+            tolerance=150.0,
+            reset=mock.Mock(),
+        )
+        self.server._apply_dual_distance_target({"target_distance_mm": 2500})
+        self.assertEqual(self.server.depth_analyzer.target, 2500.0)
+        self.assertEqual(self.server.depth_analyzer.tolerance, 250.0)
+        self.assertEqual(self.server.depth_analyzer.min_distance, 2250.0)
+        self.assertEqual(self.server.depth_analyzer.max_distance, 2750.0)
+        self.server.depth_analyzer.reset.assert_called_once_with()
+
+    def test_dual_preview_without_session_target_clears_previous_target(self):
+        for state in ({}, {"target_distance_mm": None}, {"target_distance_mm": ""}):
+            with self.subTest(state=state):
+                self.server.depth_analyzer = SimpleNamespace(
+                    target=1500.0,
+                    tolerance=150.0,
+                    reset=mock.Mock(),
+                )
+                self.server._apply_dual_distance_target({"target_distance_mm": 4000})
+                self.server.depth_analyzer.reset.reset_mock()
+                self.server._apply_dual_distance_target(state)
+                self.assertEqual(self.server.depth_analyzer.target, 2500.0)
+                self.assertEqual(self.server.depth_analyzer.tolerance, 250.0)
+                self.assertEqual(self.server.depth_analyzer.min_distance, 2250.0)
+                self.assertEqual(self.server.depth_analyzer.max_distance, 2750.0)
+                self.server.depth_analyzer.reset.assert_called_once_with()
+
     def test_old_capture_policy_can_be_closed_but_cannot_add_images(self):
         condition_item = primary3()[0]
         self.server.protocol_store.create_subject(

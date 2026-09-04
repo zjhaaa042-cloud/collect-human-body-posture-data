@@ -110,6 +110,13 @@ class DualSessionStoreTests(unittest.TestCase):
                 {item["measurement_id"] for item in measured["anthropometry"]["records"]},
                 {"M01", "M03", "M06", "M09", "M12"},
             )
+            self.assertTrue(all(
+                item["qc_status"] == "PASS_2"
+                and item["final_value"] == 100.0
+                and item["selected_trial_indices"] == [1, 2]
+                for item in measured["anthropometry"]["records"]
+            ))
+            self.assertEqual(measured["anthropometry"]["review_required"], [])
             self.assertTrue(measured["completion"]["can_complete"])
             completed = store.complete_session("S0002")
             self.assertEqual(completed["status"], "COMPLETE")
@@ -122,6 +129,49 @@ class DualSessionStoreTests(unittest.TestCase):
                     audit={"max_host_timestamp_skew_ms": 10.0},
                     metadata={"distance_mm": 2500},
                 )
+
+    def test_anthropometry_uses_third_reading_and_keeps_review_non_blocking(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = DualSessionStore(Path(directory))
+            store.create_session("S0007")
+            definitions = [asdict(item) for item in measurement_definitions()]
+            samples = {
+                "M01": (170.0, 173.0, 170.5),
+                "M03": (40.0, 40.5, None),
+                "M06": (80.0, 84.0, 88.0),
+                "M09": (75.0, 75.8, None),
+                "M12": (95.0, 96.0, None),
+            }
+            records = []
+            for definition in definitions:
+                measurement_id = definition["measurement_id"]
+                if measurement_id not in samples:
+                    continue
+                first, second, third = samples[measurement_id]
+                record = {
+                    "measurement_id": measurement_id,
+                    "field_name": definition["field_names"][0],
+                    "m1": first,
+                    "m2": second,
+                }
+                if third is not None:
+                    record["m3"] = third
+                records.append(record)
+
+            measured = store.save_anthropometry("S0007", records, definitions)
+            by_id = {
+                item["measurement_id"]: item
+                for item in measured["anthropometry"]["records"]
+            }
+            self.assertAlmostEqual(by_id["M01"]["final_value"], 170.25)
+            self.assertEqual(by_id["M01"]["selected_trial_indices"], [1, 3])
+            self.assertEqual(by_id["M01"]["qc_status"], "PASS_3")
+            self.assertEqual(by_id["M06"]["qc_status"], "REVIEW_REQUIRED")
+            self.assertEqual(
+                measured["anthropometry"]["review_required"],
+                ["M06/nipple_chest_circumference_cm"],
+            )
+            self.assertTrue(measured["anthropometry"]["complete"])
 
     def test_recovers_a_verified_final_attempt_missing_from_state(self):
         with tempfile.TemporaryDirectory() as directory:

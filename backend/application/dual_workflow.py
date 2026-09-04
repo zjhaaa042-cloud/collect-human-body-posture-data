@@ -159,7 +159,7 @@ class DualWorkflowService:
         interval_ms: float = 150.0,
     ) -> dict[str, Any]:
         if not ready:
-            raise ValueError("请确认受试者已按当前角度就位且全身完整入框")
+            raise ValueError("请确认受试者已按当前角度就位、Gemini 全身完整入框且两路画面稳定")
         store, subject_id = self._active(subject_id)
         state = self.public_state()
         if state.get("reconciliation_required"):
@@ -196,6 +196,10 @@ class DualWorkflowService:
                     metadata={
                         "distance_mm": distance_mm,
                         "ready_confirmed_at": datetime.now(timezone.utc).isoformat(),
+                        "framing_policy": {
+                            "C336L": "full_body_required",
+                            "CD435I": "auxiliary_fov_limited_non_blocking",
+                        },
                     },
                 )
             finally:
