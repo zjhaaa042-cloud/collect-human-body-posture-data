@@ -1,6 +1,11 @@
 import React from 'react';
 import { Alert, InputNumber, Tag, Typography } from 'antd';
-import { expandMeasurements, needsThirdReading, recordKey } from '../protocol/protocolUtils.mjs';
+import {
+  expandMeasurements,
+  needsThirdReading,
+  recordKey,
+  reduceMeasurementReadings
+} from '../protocol/protocolUtils.mjs';
 
 const { Text } = Typography;
 const EQUIPMENT_LABELS = {
@@ -24,7 +29,7 @@ export default function MeasurementItem({ definition, draft, errors, onChange })
       </legend>
       <div className="measurement-rule">
         <Text type="secondary">
-          单位：{definition.unit}；{threshold == null ? '规范未设置强制第三测阈值' : `前两次差值 > ${threshold}${definition.unit} 时必须第三测`}
+          单位：{definition.unit}；前两次需分别重新定位；{threshold == null ? '规范未设置强制第三测阈值' : `差值 > ${threshold}${definition.unit} 时必须第三测`}
         </Text>
         <Text type="secondary">
           工具：{(definition.required_equipment || []).map((item) => EQUIPMENT_LABELS[item] || item).join('、') || '按现场 SOP'}
@@ -38,6 +43,15 @@ export default function MeasurementItem({ definition, draft, errors, onChange })
         const key = recordKey(row.measurement_id, row.field_name);
         const values = draft[key] || { m1: '', m2: '', m3: '' };
         const needsThird = needsThirdReading(definition, values);
+        const thirdProvided = values.m3 !== '' && values.m3 != null;
+        let reduction = null;
+        if (!errors[key]) {
+          try {
+            reduction = reduceMeasurementReadings(definition, values);
+          } catch {
+            reduction = null;
+          }
+        }
         return (
           <div className="measurement-reading" key={key}>
             <label className="measurement-field-name" htmlFor={`${key}-m1`}>
@@ -58,8 +72,19 @@ export default function MeasurementItem({ definition, draft, errors, onChange })
               />
             ))}
             {errors[key] && <div className="measurement-error" role="alert">{errors[key]}</div>}
-            {needsThird && !errors[key] && (
+            {needsThird && !thirdProvided && !errors[key] && (
               <Alert className="third-reading-alert" type="warning" showIcon message="差值已超阈值，请填写第三次读数" />
+            )}
+            {reduction && (!needsThird || thirdProvided) && (
+              <Alert
+                className="third-reading-alert"
+                type={reduction.qc_status === 'REVIEW_REQUIRED' ? 'warning' : 'success'}
+                showIcon
+                message={`归约值 ${reduction.final_value.toFixed(2)} ${definition.unit}`}
+                description={reduction.qc_status === 'REVIEW_REQUIRED'
+                  ? '三次读数仍较分散，已保留归约值并标记复核；建议现场重测。'
+                  : `采用第 ${reduction.selected_trial_indices.join('、')} 次读数。`}
+              />
             )}
           </div>
         );

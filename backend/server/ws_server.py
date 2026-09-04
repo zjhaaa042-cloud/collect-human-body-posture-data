@@ -874,25 +874,10 @@ class WebSocketServer:
             },
         }
 
-    def _apply_protocol_distance_target(
-        self,
-        state: Mapping[str, Any],
-        condition_id: Optional[str] = None,
-    ) -> Optional[Mapping[str, Any]]:
-        target_id = condition_id or state.get("next_condition_id")
-        condition = next(
-            (
-                item
-                for item in state.get("conditions", [])
-                if item.get("condition_id") == target_id
-            ),
-            None,
-        )
-        if not condition:
-            return None
+    def _configure_distance_target(self, target_distance_mm: float) -> None:
         if not hasattr(self, "depth_analyzer"):
-            return condition
-        target = float(condition["distance_mm"])
+            return
+        target = float(target_distance_mm)
         tolerance = max(150.0, target * 0.10)
         min_distance = max(300.0, target - tolerance)
         max_distance = target + tolerance
@@ -914,7 +899,30 @@ class WebSocketServer:
             self.depth_analyzer.min_distance = min_distance
             self.depth_analyzer.max_distance = max_distance
             self.depth_analyzer.reset()
+
+    def _apply_protocol_distance_target(
+        self,
+        state: Mapping[str, Any],
+        condition_id: Optional[str] = None,
+    ) -> Optional[Mapping[str, Any]]:
+        target_id = condition_id or state.get("next_condition_id")
+        condition = next(
+            (
+                item
+                for item in state.get("conditions", [])
+                if item.get("condition_id") == target_id
+            ),
+            None,
+        )
+        if not condition:
+            return None
+        self._configure_distance_target(float(condition["distance_mm"]))
         return condition
+
+    def _apply_dual_distance_target(self, state: Mapping[str, Any]) -> None:
+        target = state.get("target_distance_mm")
+        if target not in {None, ""}:
+            self._configure_distance_target(float(target))
 
     async def _send_protocol_state(self, websocket, subject_id: str):
         state = self._protocol_subject_state(subject_id)
@@ -2687,6 +2695,7 @@ class WebSocketServer:
             clothing_note=str(data.get("clothing_note") or ""),
             target_distance_mm=target_distance_mm,
         )
+        self._apply_dual_distance_target(state)
         result = {"success": True, "state": state}
         await self._emit_protocol_message(websocket, {
             "type": "dual_session_state", "data": {**result["state"], "event": "created"},
@@ -2703,6 +2712,7 @@ class WebSocketServer:
             subject_id=subject_id,
             output_path=output_path,
         )
+        self._apply_dual_distance_target(state)
         await self._emit_protocol_message(websocket, {
             "type": "dual_session_state", "data": {**state, "event": "opened"},
         })
@@ -2720,7 +2730,13 @@ class WebSocketServer:
             records=records,
             definitions=definitions,
         )
-        result = {"success": True, "state": state, "message": "人体测量已保存"}
+        review_required = list(
+            (state.get("anthropometry") or {}).get("review_required") or []
+        )
+        message = "人体测量已保存"
+        if review_required:
+            message += f"；{len(review_required)} 项三次读数仍较分散，已标记复核"
+        result = {"success": True, "state": state, "message": message}
         await self._emit_protocol_message(websocket, {
             "type": "dual_anthropometry_result", "data": result,
         })

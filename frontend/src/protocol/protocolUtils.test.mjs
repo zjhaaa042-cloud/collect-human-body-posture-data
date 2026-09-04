@@ -6,6 +6,7 @@ import {
   getReviewContext,
   isReviewRequiredStatus,
   needsThirdReading,
+  reduceMeasurementReadings,
   resolveSelectedCondition,
   subjectOptions,
   validateMeasurements
@@ -15,7 +16,7 @@ import { buildWorkflowGroups, setupChanges } from './workflowGroups.mjs';
 const definitions = [
   {
     measurement_id: 'M01', field_names: ['height_cm'], display_name_zh: '身高',
-    unit: 'cm', required: true, third_measurement_threshold: 0.5
+    unit: 'cm', required: true, third_measurement_threshold: 1
   },
   {
     measurement_id: 'M02', field_names: ['weight_kg'], display_name_zh: '体重',
@@ -34,24 +35,46 @@ test('双侧测量定义展开为两个可输入字段', () => {
 });
 
 test('只有配置阈值且差值超限时要求第三测', () => {
-  assert.equal(needsThirdReading(definitions[0], { m1: 170, m2: 171 }), true);
+  assert.equal(needsThirdReading(definitions[0], { m1: 170, m2: 171 }), false);
+  assert.equal(needsThirdReading(definitions[0], { m1: 170, m2: 171.01 }), true);
   assert.equal(needsThirdReading(definitions[1], { m1: 60, m2: 80 }), false);
 });
 
 test('必填项目拒绝缺失和超阈值未复测，选填整项空时不发送', () => {
   const first = validateMeasurements(definitions, {
-    'M01::height_cm': { m1: 170, m2: 171 },
+    'M01::height_cm': { m1: 170, m2: 171.1 },
     'M02::weight_kg': { m1: 60, m2: 60.1 }
   });
   assert.equal(first.valid, false);
   assert.match(first.errors['M01::height_cm'], /第三次/);
 
   const second = validateMeasurements(definitions, {
-    'M01::height_cm': { m1: 170, m2: 171, m3: 170.2 },
+    'M01::height_cm': { m1: 170, m2: 171.1, m3: 170.2 },
     'M02::weight_kg': { m1: 60, m2: 60.1 }
   });
   assert.equal(second.valid, true);
   assert.equal(second.records.length, 2);
+  assert.equal(second.records[0].final_value, 170.1);
+  assert.deepEqual(second.records[0].selected_trial_indices, [1, 3]);
+});
+
+test('第三测后取最接近两次均值，仍分散时非阻断标记复核', () => {
+  const chest = { third_measurement_threshold: 2 };
+  const resolved = reduceMeasurementReadings(chest, { m1: 84, m2: 88, m3: 85 });
+  assert.equal(resolved.final_value, 84.5);
+  assert.deepEqual(resolved.selected_trial_indices, [1, 3]);
+  assert.equal(resolved.qc_status, 'PASS_3');
+
+  const dispersed = reduceMeasurementReadings(chest, { m1: 80, m2: 84, m3: 88 });
+  assert.equal(dispersed.final_value, 84);
+  assert.deepEqual(dispersed.selected_trial_indices, [1, 2, 3]);
+  assert.equal(dispersed.selected_difference, 8);
+  assert.equal(dispersed.closest_pair_difference, 4);
+  assert.equal(dispersed.qc_status, 'REVIEW_REQUIRED');
+  assert.equal(
+    reduceMeasurementReadings(chest, { m1: 88, m2: 84, m3: 80 }).final_value,
+    84
+  );
 });
 
 test('受试者列表同时兼容字符串与对象', () => {

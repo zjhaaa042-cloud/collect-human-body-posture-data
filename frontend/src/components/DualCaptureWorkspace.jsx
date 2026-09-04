@@ -43,7 +43,7 @@ export default function DualCaptureWorkspace({ cameraStatus, state, busyAction, 
         type="info"
         showIcon
         message="每个角度由两台相机近同步采集，各保存 5 帧"
-        description="每帧保存 RGB、原始/对齐深度、两类伪彩深度和带颜色 PLY 点云；不采集左右红外。"
+        description="Gemini 是全身主视角；D435i 是辅助 RGB-D 视角，2.5 m 处允许因硬件 FOV 产生的画幅裁切，不作为全身入框门禁。每帧保存 RGB、原始/对齐深度、两类伪彩深度和带颜色 PLY 点云。"
       />
       {integrityMessage && (
         <Alert
@@ -63,12 +63,12 @@ export default function DualCaptureWorkspace({ cameraStatus, state, busyAction, 
         <>
           <div className="dual-angle-card">
             <Text type="secondary">下一角度</Text><strong>{nextYaw}°</strong>
-            <Text type="secondary">请按地垫从正面顺时针转到 {nextYaw}°，确认全身入镜后采集。</Text>
+            <Text type="secondary">请按地垫从正面顺时针转到 {nextYaw}°，确认 Gemini 全身入镜后采集。</Text>
             <div className="angle-distance-field">
               <InputNumber aria-label="本角度距离（毫米）" value={distance} onChange={setDistance} min={250} max={6000} step={50} precision={0} style={{ width: '100%' }} />
               <Text type="secondary">mm</Text>
             </div>
-            <Checkbox disabled={writeBlocked} checked={ready} onChange={(event) => setReady(event.target.checked)}>已确认当前角度正确、全身完整入框且两台相机画面稳定</Checkbox>
+            <Checkbox disabled={writeBlocked} checked={ready} onChange={(event) => setReady(event.target.checked)}>已确认当前角度正确、Gemini 全身完整入框，且两台相机画面稳定</Checkbox>
             <Button type="primary" size="large" block icon={<SyncOutlined />} loading={busyAction === 'capture-dual'} disabled={!dualReady || !ready || writeBlocked} onClick={() => { onCapture(nextYaw, distance); setReady(false); }}>双机近同步采集此角度</Button>
           </div>
           {!dualReady && <Alert type="warning" showIcon message="请在上方依次连接 Gemini 336L 与 D435i；两台均连接后会自动显示双画面预览。" />}

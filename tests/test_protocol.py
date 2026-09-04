@@ -18,6 +18,7 @@ from backend.protocol import (
     optional_measurements,
     parse_capture_stem,
     primary3,
+    reduce_measurement_readings,
     required_measurements,
     validate_conditions,
     validate_subject_id,
@@ -186,6 +187,15 @@ class MeasurementDefinitionTests(unittest.TestCase):
         all_fields = [field for item in definitions for field in item.field_names]
         self.assertEqual(len(all_fields), len(set(all_fields)))
 
+    def test_required_measurement_thresholds_match_field_policy(self) -> None:
+        self.assertEqual(
+            {
+                item.measurement_id: item.third_measurement_threshold
+                for item in required_measurements()
+            },
+            {"M01": 1.0, "M03": 1.0, "M06": 2.0, "M09": 1.5, "M12": 1.5},
+        )
+
     def test_circumference_requires_third_reading_over_threshold(self) -> None:
         waist = MEASUREMENTS_BY_ID["M08"]
         self.assertFalse(waist.needs_third_measurement(80.0, 81.0))
@@ -197,6 +207,23 @@ class MeasurementDefinitionTests(unittest.TestCase):
     def test_three_readings_use_closest_pair(self) -> None:
         waist = MEASUREMENTS_BY_ID["M08"]
         self.assertAlmostEqual(waist.final_value((80.0, 83.0, 80.4)), 80.2)
+
+    def test_three_reading_reduction_preserves_qc_status(self) -> None:
+        resolved = reduce_measurement_readings((84.0, 88.0, 85.0), 2.0)
+        self.assertAlmostEqual(resolved["final_value"], 84.5)
+        self.assertEqual(resolved["selected_trial_indices"], [1, 3])
+        self.assertEqual(resolved["qc_status"], "PASS_3")
+
+        dispersed = reduce_measurement_readings((80.0, 84.0, 88.0), 2.0)
+        self.assertAlmostEqual(dispersed["final_value"], 84.0)
+        self.assertEqual(dispersed["selected_trial_indices"], [1, 2, 3])
+        self.assertAlmostEqual(dispersed["selected_difference"], 8.0)
+        self.assertAlmostEqual(dispersed["closest_pair_difference"], 4.0)
+        self.assertEqual(dispersed["qc_status"], "REVIEW_REQUIRED")
+        self.assertAlmostEqual(
+            reduce_measurement_readings((88.0, 84.0, 80.0), 2.0)["final_value"],
+            84.0,
+        )
 
     def test_weight_has_no_invented_third_measurement_threshold(self) -> None:
         weight = MEASUREMENTS_BY_ID["M02"]

@@ -23,6 +23,7 @@ import cv2
 import numpy as np
 
 from .camera_adapters import FrameBundle
+from ..protocol import reduce_measurement_readings
 from ..storage.atomic_io import (
     AtomicIOError,
     DatasetLease,
@@ -58,6 +59,7 @@ _STORAGE_FEATURES = (
     "per_frame_calibration_v1",
     "durable_commit_v1",
 )
+_ANTHROPOMETRY_POLICY_VERSION = "five-measurement-qc-v1"
 _LAYOUT_README = """双机八角度采集数据说明（dual-rgbd-v2.2）
 
 每个受试者位于 subjects/<受试者编号>/。
@@ -65,6 +67,8 @@ session_manifest.json：受试者登记信息、八个角度进度、人体测�
 angles/angle_000_front 等：一个角度一份目录；方向以 0 度正面为起点顺时针。
 capture_01_<UTC时间>：一次双机近同步采集；内含两台相机各 5 帧 RGB、原始/对齐深度、两类伪彩深度和 PLY 点云。
 capture_manifest.json：时间同步审计、每个文件的 SHA-256、距离及采集确认信息。
+画幅策略：Gemini 336L 是全身主视角；D435i 是辅助 RGB-D 视角，2.5 m 处允许因硬件 FOV 导致的画幅裁切，不作为全身入框门禁。
+人体测量：保留全部原始读数和归约值；前两次超阈值时录入第三次，取最接近两次均值，三次仍分散时标记 REVIEW_REQUIRED 但不阻断保存。
 
 目录中的 depth_raw_uint16 与 depth_aligned_uint16 均为无损 uint16 PNG；depth_raw_npy 与 depth_aligned_npy 是逐像素一致的原始 uint16 NumPy 数组。
 NPY 不预乘深度比例；毫米值 = NPY 数值 × capture_manifest.json 中对应帧的 depth_scale_mm_per_unit。
@@ -306,6 +310,7 @@ class DualSessionStore:
             for item in definitions if isinstance(item, Mapping)
         }
         normalized: list[dict[str, Any]] = []
+        review_required: list[str] = []
         seen: set[tuple[str, str]] = set()
         for record in records:
             if not isinstance(record, Mapping):
@@ -331,16 +336,39 @@ class DualSessionStore:
             if m1 <= 0 or m2 <= 0 or (m3 is not None and m3 <= 0):
                 raise DualSessionStoreError(f"{measurement_id}/{field_name} 的读数必须大于 0")
             threshold = definition.get("third_measurement_threshold")
-            if threshold is not None and abs(m1 - m2) > float(threshold) and m3 is None:
-                raise DualSessionStoreError(f"{measurement_id}/{field_name} 前两次差值超限，必须填写第三次")
+            try:
+                reduction = reduce_measurement_readings(
+                    [m1, m2] if m3 is None else [m1, m2, m3],
+                    float(threshold) if threshold is not None else None,
+                )
+            except ValueError as exc:
+                raise DualSessionStoreError(
+                    f"{measurement_id}/{field_name} {exc}"
+                ) from exc
             item = {
                 "measurement_id": measurement_id,
                 "field_name": field_name,
                 "m1": m1,
                 "m2": m2,
+                "first_two_difference": reduction["first_two_difference"],
+                "third_measurement_threshold": (
+                    float(threshold) if threshold is not None else None
+                ),
+                "third_measurement_required": reduction["third_measurement_required"],
+                "selected_trial_indices": reduction["selected_trial_indices"],
+                "selected_difference": reduction["selected_difference"],
+                "closest_pair_difference": reduction["closest_pair_difference"],
+                "reduction_rule": reduction["reduction_rule"],
+                "final_value": reduction["final_value"],
+                "qc_status": reduction["qc_status"],
             }
             if m3 is not None:
                 item["m3"] = m3
+            if reduction["qc_status"] == "REVIEW_REQUIRED":
+                item["warnings"] = [
+                    "三次读数仍较分散，已保留归约值；建议现场重新测量并人工复核"
+                ]
+                review_required.append(f"{measurement_id}/{field_name}")
             normalized.append(item)
 
         missing_required = []
@@ -360,8 +388,10 @@ class DualSessionStore:
             "status": "COMPLETE",
             "complete": True,
             "saved_at": saved_at,
+            "policy_version": _ANTHROPOMETRY_POLICY_VERSION,
             "records": normalized,
             "missing_required": [],
+            "review_required": review_required,
         }
         self._refresh_completion(state)
         self._atomic_json(self._state_path(subject_id), state)

@@ -204,6 +204,13 @@
   font-size: 22px;
 }
 
+.distance-source-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  line-height: 1;
+}
+
 .distance-value {
   color: var(--distance-color);
   font-size: 24px;

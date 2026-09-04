@@ -9,7 +9,7 @@ def _measurement_definitions() -> tuple[MeasurementDefinition, ...]:
     tape = ("non_stretch_tape",)
     return (
         MeasurementDefinition(
-            "M01", ("height_cm",), "身高", "height", "cm", True, 0.5,
+            "M01", ("height_cm",), "身高", "height", "cm", True, 1.0,
             ("stadiometer",),
             "赤足、脚跟并拢、身体直立，头保持 Frankfurt plane；测量地面到头顶点 Vertex。",
         ),
@@ -20,7 +20,7 @@ def _measurement_definitions() -> tuple[MeasurementDefinition, ...]:
         ),
         MeasurementDefinition(
             "M03", ("biacromial_breadth_cm",), "肩峰间宽", "breadth", "cm",
-            True, 0.5, ("anthropometer_or_large_sliding_caliper",),
+            True, 1.0, ("anthropometer_or_large_sliding_caliper",),
             "定位左、右 Acromion 肩峰点，测量两点间直线距离；禁止用软尺沿皮肤绕量。",
         ),
         MeasurementDefinition(
@@ -33,8 +33,8 @@ def _measurement_definitions() -> tuple[MeasurementDefinition, ...]:
         ),
         MeasurementDefinition(
             "M06", ("nipple_chest_circumference_cm",), "胸围",
-            "circumference", "cm", True, 1.0, tape,
-            "取左右 thelion（乳头点）的平均高度，在该水平面绕身体一圈；软尺水平、贴身不勒，正常呼气末读数。",
+            "circumference", "cm", True, 2.0, tape,
+            "取左右 thelion（乳头点）的平均高度，在该水平面绕身体一圈；放松站立、不说话，软尺水平、贴身不勒，每次均在正常呼气末读数。",
         ),
         MeasurementDefinition(
             "M07", ("underbust_circumference_cm",), "下胸围", "circumference", "cm",
@@ -46,8 +46,8 @@ def _measurement_definitions() -> tuple[MeasurementDefinition, ...]:
         ),
         MeasurementDefinition(
             "M09", ("midpoint_waist_circumference_cm",), "腰围",
-            "circumference", "cm", True, 1.0, tape,
-            "左右两侧分别取最低可触肋骨与髂嵴最高点之间的中点，以左右中点确定水平面并绕量一圈。",
+            "circumference", "cm", True, 1.5, tape,
+            "左右两侧分别取最低可触肋骨与髂嵴最高点之间的中点，以左右中点确定水平面并绕量一圈；放松站立、不说话，每次均在正常呼气末读数。",
         ),
         MeasurementDefinition(
             "M10", ("umbilical_circumference_cm",), "脐围", "circumference", "cm",
@@ -59,7 +59,8 @@ def _measurement_definitions() -> tuple[MeasurementDefinition, ...]:
         ),
         MeasurementDefinition(
             "M12", ("max_hip_circumference_cm",), "臀围", "circumference", "cm",
-            True, 1.0, tape, "保持软尺水平并上下移动，寻找臀部最大水平周长，取最大值。",
+            True, 1.5, tape,
+            "放松站立、不说话，软尺水平并上下移动，寻找臀部最大水平周长，每次均在正常呼气末读数。",
         ),
         MeasurementDefinition(
             "M13", ("trochanter_pelvis_circumference_cm",), "大转子/骨盆围",

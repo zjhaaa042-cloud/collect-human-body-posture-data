@@ -86,7 +86,9 @@ class DualWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 "state": {},
                 "capture": {},
             }
-            with mock.patch.object(service.store, "commit_group", return_value=committed):
+            with mock.patch.object(
+                service.store, "commit_group", return_value=committed
+            ) as commit_group:
                 result = await service.capture_group(
                     subject_id="S0001",
                     yaw_deg=0,
@@ -102,6 +104,11 @@ class DualWorkflowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(gemini.calls, 5)
             self.assertEqual(d435i.calls, 5)
             self.assertTrue(all(gemini.observed_locked + d435i.observed_locked))
+            metadata = commit_group.call_args.kwargs["metadata"]
+            self.assertEqual(metadata["framing_policy"], {
+                "C336L": "full_body_required",
+                "CD435I": "auxiliary_fov_limited_non_blocking",
+            })
             service.close()
 
 

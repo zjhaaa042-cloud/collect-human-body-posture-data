@@ -17,7 +17,7 @@ from .measurements import (
     optional_measurements,
     required_measurements,
 )
-from .models import Condition, MeasurementDefinition
+from .models import Condition, MeasurementDefinition, reduce_measurement_readings
 from .naming import (
     format_capture_stem,
     format_condition_id,
@@ -29,6 +29,7 @@ from .naming import (
 __all__ = [
     "Condition",
     "MeasurementDefinition",
+    "reduce_measurement_readings",
     "MEASUREMENTS_BY_ID",
     "primary3",
     "gemini27",
