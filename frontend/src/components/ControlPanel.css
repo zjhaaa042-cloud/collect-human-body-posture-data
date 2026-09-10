@@ -287,6 +287,12 @@
   align-items: center;
 }
 
+.voice-capture-hint {
+  min-height: 22px;
+  padding-left: 24px;
+  line-height: 1.5;
+}
+
 .dual-angle-list {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 0;

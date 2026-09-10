@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircleOutlined, LockOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, EditOutlined, LockOutlined } from '@ant-design/icons';
 import { Alert, Button, Empty, List, Result, Tag, Typography } from 'antd';
 
 const { Paragraph, Text, Title } = Typography;
@@ -10,7 +10,7 @@ const asList = (value) => {
   return [];
 };
 
-export default function CompletionPanel({ state, report: returnedReport, busyAction, onComplete }) {
+export default function CompletionPanel({ state, report: returnedReport, busyAction, onComplete, onEditMeasurements }) {
   if (!state?.subject_id) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请先完成第 1 步受试者登记，系统才能计算完成门禁" />;
   }
@@ -58,7 +58,8 @@ export default function CompletionPanel({ state, report: returnedReport, busyAct
       <Result
         status="success"
         title={`受试者 ${state.subject_id} 已完成`}
-        subTitle={state.completion?.completed_at ? `完成时间：${state.completion.completed_at}` : '数据已通过协议完整性门禁。'}
+        subTitle={state.completion?.completed_at ? `完成时间：${state.completion.completed_at}。如需更正人体测量，可返回第 3 步保存修订。` : '数据已通过协议完整性门禁。'}
+        extra={<Button icon={<EditOutlined />} onClick={onEditMeasurements}>修改人体测量</Button>}
       />
     );
   }

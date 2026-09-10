@@ -85,7 +85,7 @@ export default function Anthropometry({ definitions, state, busyAction, onSave }
       </div>
       <Collapse className="optional-measurements" items={optionalPanel} />
       <div className="measurement-actions">
-        <Text type="secondary">保存后仍可修改；完成门禁会再次核对所有必填项。</Text>
+        <Text type="secondary">保存后仍可修改；任务完成后也可在此更正人体测量，系统会保留修订记录。</Text>
         <Button type="primary" icon={<SaveOutlined />} loading={busyAction === 'measurements'} disabled={dualWriteBlocked(state)} onClick={save}>校验并保存人体测量</Button>
       </div>
     </section>

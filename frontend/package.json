@@ -7,7 +7,7 @@
     "start": "vite --host 127.0.0.1 --port 3000 --open",
     "start:no-open": "vite --host 127.0.0.1 --port 3000",
     "build": "vite build && node scripts/check-electron-build.mjs",
-    "test": "node --test src/protocol/protocolUtils.test.mjs src/collector/collectorState.test.mjs",
+    "test": "node --test src/protocol/protocolUtils.test.mjs src/collector/collectorState.test.mjs src/collector/voiceState.test.mjs",
     "eject": "react-scripts eject",
     "electron:dev": "electron . --dev",
     "electron:build": "npm run build && electron-builder --win nsis",

@@ -7,6 +7,10 @@ import {
   readActiveDualSession,
   reduceDualSessionEvent
 } from '../collector/dualSessionState.mjs';
+import {
+  persistVoicePreferences,
+  readVoicePreferences
+} from '../collector/voiceState.mjs';
 
 const EMPTY_CAMERA = {
   connected: false,
@@ -33,6 +37,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
   const activeSubjectIdRef = useRef('');
   const selectedConditionIdRef = useRef('');
   const activeDualSessionRef = useRef(readActiveDualSession());
+  const voicePreferencesRef = useRef(readVoicePreferences(window.localStorage));
   const [connected, setConnected] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [previewStatus, setPreviewStatus] = useState('disconnected');
@@ -53,6 +58,17 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
   const [reviewPreviewError, setReviewPreviewError] = useState('');
   const [dualSessionState, setDualSessionState] = useState(null);
   const [selectedOutputDirectory, setSelectedOutputDirectory] = useState('');
+  const [voiceStatus, setVoiceStatus] = useState({
+    ...voicePreferencesRef.current,
+    output_available: false,
+    recognition_available: false,
+    listening: false,
+    speaking: false,
+    activity: false,
+    capture_armed: false,
+    remaining_seconds: 0,
+    last_error: null
+  });
 
   useEffect(() => {
     let active = true;
@@ -115,6 +131,8 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           setProtocolError('');
           sendOn(socket, 'start_preview');
           sendOn(socket, 'get_camera_status');
+          sendOn(socket, 'set_voice_preferences', voicePreferencesRef.current);
+          sendOn(socket, 'get_voice_status');
           sendOn(socket, 'get_protocol_catalog');
           sendOn(socket, 'get_protocol_subjects');
           if (activeDualSessionRef.current?.subject_id && activeDualSessionRef.current?.output_path) {
@@ -143,6 +161,23 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           break;
         case 'distance_update':
           setDistanceInfo(payload);
+          break;
+        case 'voice_status':
+          setVoiceStatus((previous) => ({ ...previous, ...payload }));
+          break;
+        case 'voice_control_result':
+          if (!payload.success) {
+            message.warning(payload.error || '语音控制操作未执行');
+          }
+          break;
+        case 'voice_command_event':
+          if (payload.command === 'start_capture' && payload.status === 'accepted') {
+            setBusyAction('capture-dual');
+          } else if (payload.status === 'rejected') {
+            message.warning(payload.message || '语音命令未执行');
+          } else if (payload.message) {
+            message.info(payload.message);
+          }
           break;
         case 'camera_status':
           cameraConnected = Boolean(payload.connected);
@@ -403,6 +438,14 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
         setPreviewData(null);
         setDistanceInfo(null);
         setCameraStatus({ ...EMPTY_CAMERA, message: '采集服务已断开，预览已清除' });
+        setVoiceStatus((previous) => ({
+          ...previous,
+          listening: false,
+          speaking: false,
+          activity: false,
+          capture_armed: false,
+          remaining_seconds: 0
+        }));
         setPreviewStatus('disconnected');
         setBusyAction('');
         setIsCameraConnecting(false);
@@ -579,13 +622,21 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
   }, 'completion'), [protocolState?.subject_id, send]);
   const createDualSession = useCallback((payload) => send('create_dual_session', payload, 'create-dual-session'), [send]);
   const openDualSession = useCallback((payload) => send('open_dual_session', payload, 'open-dual-session'), [send]);
-  const selectOutputDirectory = useCallback(() => send('select_output_directory', {}, 'select-output-directory'), [send]);
+  const selectOutputDirectory = useCallback((selectedPath = '') => {
+    const path = String(selectedPath || '').trim();
+    if (path) {
+      setSelectedOutputDirectory(path);
+      return true;
+    }
+    return send('select_output_directory', {}, 'select-output-directory');
+  }, [send]);
   const startNextDualSubject = useCallback(() => {
+    send('disarm_dual_voice_capture');
     setDualSessionState(null);
     setCompletionReport(null);
     activeDualSessionRef.current = null;
     clearActiveDualSession();
-  }, []);
+  }, [send]);
   const captureDualGroup = useCallback((yawDeg, distanceMm) => send('capture_dual_group', {
     subject_id: dualSessionState?.subject_id,
     yaw_deg: yawDeg,
@@ -599,6 +650,42 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
   const completeDualSession = useCallback(() => send('complete_dual_session', {
     subject_id: dualSessionState?.subject_id
   }, 'completion'), [dualSessionState?.subject_id, send]);
+  const updateVoicePreferences = useCallback((changes) => {
+    const preferences = persistVoicePreferences(window.localStorage, {
+      ...voicePreferencesRef.current,
+      ...changes
+    });
+    voicePreferencesRef.current = preferences;
+    setVoiceStatus((previous) => ({ ...previous, ...preferences }));
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({
+        type: 'set_voice_preferences',
+        ...preferences
+      }));
+    }
+    return preferences;
+  }, []);
+  const setVoiceOutputEnabled = useCallback((enabled) => (
+    updateVoicePreferences({ output_enabled: Boolean(enabled) })
+  ), [updateVoicePreferences]);
+  const setVoiceRecognitionEnabled = useCallback((enabled) => (
+    updateVoicePreferences({ recognition_enabled: Boolean(enabled) })
+  ), [updateVoicePreferences]);
+  const armDualVoiceCapture = useCallback((yawDeg, distanceMm) => {
+    if (
+      !voiceStatus.recognition_enabled
+      || !voiceStatus.recognition_available
+      || !voiceStatus.listening
+    ) return false;
+    return send('arm_dual_voice_capture', {
+      subject_id: dualSessionState?.subject_id,
+      yaw_deg: yawDeg,
+      distance_mm: distanceMm
+    });
+  }, [dualSessionState?.subject_id, send, voiceStatus.listening, voiceStatus.recognition_available, voiceStatus.recognition_enabled]);
+  const disarmDualVoiceCapture = useCallback(() => (
+    send('disarm_dual_voice_capture')
+  ), [send]);
 
   const controlActions = useMemo(() => ({
     lastCaptureResult,
@@ -627,6 +714,11 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     captureDualGroup,
     saveDualAnthropometry,
     completeDualSession,
+    voiceStatus,
+    setVoiceOutputEnabled,
+    setVoiceRecognitionEnabled,
+    armDualVoiceCapture,
+    disarmDualVoiceCapture,
     dualCompletionReport: completionReport,
     completeSubject
   }), [
@@ -635,11 +727,13 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     requestReviewPreview, reviewCapture, reviewPreview, reviewPreviewError,
     reviewPreviewLoading, saveAnthropometry, saveDailyEquipmentCheck, selectPreviewCondition, selectSubject,
     dualSessionState, selectedOutputDirectory, createDualSession, openDualSession, selectOutputDirectory,
-    startNextDualSubject, captureDualGroup, saveDualAnthropometry, completeDualSession
+    startNextDualSubject, captureDualGroup, saveDualAnthropometry, completeDualSession,
+    voiceStatus, setVoiceOutputEnabled, setVoiceRecognitionEnabled,
+    armDualVoiceCapture, disarmDualVoiceCapture
   ]);
 
   return {
-    connected, previewData, previewStatus, distanceInfo, cameraStatus,
+    connected, previewData, previewStatus, distanceInfo, cameraStatus, voiceStatus,
     isCameraConnecting, isCameraDisconnecting,
     catalog, subjects, protocolState, protocolLoading, protocolError, busyAction, lastCaptureResult, completionReport,
     reviewPreview, reviewPreviewLoading, reviewPreviewError,
@@ -665,6 +759,10 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     captureDualGroup,
     saveDualAnthropometry,
     completeDualSession,
+    setVoiceOutputEnabled,
+    setVoiceRecognitionEnabled,
+    armDualVoiceCapture,
+    disarmDualVoiceCapture,
     completeSubject,
     controlActions
   };

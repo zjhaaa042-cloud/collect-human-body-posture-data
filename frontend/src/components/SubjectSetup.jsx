@@ -41,7 +41,10 @@ export default function SubjectSetup({
 
   const chooseOutputDirectory = async () => {
     const selected = await window.electronAPI?.selectOutputDirectory?.();
-    if (selected) form.setFieldValue('output_path', selected);
+    if (selected) {
+      form.setFieldValue('output_path', selected);
+      onChooseOutputDirectory?.(selected);
+    }
     else onChooseOutputDirectory?.();
   };
   const normalizeSubjectInput = () => setSubjectInput(formatSubjectId(subjectInput));

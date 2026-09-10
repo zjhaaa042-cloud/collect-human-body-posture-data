@@ -8,9 +8,24 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $frontendRoot = Join-Path $projectRoot "frontend"
 $pythonExe = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $productVersion = (Get-Content -Raw -Encoding UTF8 (Join-Path $frontendRoot "package.json") | ConvertFrom-Json).version
+$voiceModelRoot = Join-Path $projectRoot "models\vosk-model-small-cn-0.22"
 
 if (-not (Test-Path -LiteralPath $pythonExe)) {
     throw "Missing .venv. Run install_deps.bat first."
+}
+
+foreach ($requiredVoiceAsset in @(
+    (Join-Path $voiceModelRoot "am\final.mdl"),
+    (Join-Path $voiceModelRoot "conf\model.conf")
+)) {
+    if (-not (Test-Path -LiteralPath $requiredVoiceAsset -PathType Leaf)) {
+        throw "Missing required Vosk voice model asset: $requiredVoiceAsset"
+    }
+}
+
+& $pythonExe -c "import edge_tts, pygame, pyaudio, vosk"
+if ($LASTEXITCODE -ne 0) {
+    throw "Voice dependencies are incomplete. Run install_deps.bat first."
 }
 
 & $pythonExe -c "import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 12) else 1)"

@@ -11,11 +11,32 @@ datas = []
 binaries = []
 hiddenimports = []
 
-for package in ("pyorbbecsdk", "pyrealsense2", "vosk"):
+for package in (
+    "pyorbbecsdk",
+    "pyrealsense2",
+    "vosk",
+    "pyaudio",
+    "pygame",
+    "edge_tts",
+):
     try:
         package_datas, package_binaries, package_hiddenimports = collect_all(package)
     except Exception:
         continue
+    if package == "pygame":
+        package_hiddenimports = [
+            name
+            for name in package_hiddenimports
+            if not name.startswith(("pygame.tests", "pygame.examples"))
+        ]
+        package_datas = [
+            item
+            for item in package_datas
+            if not any(
+                segment in str(item[1]).replace("\\", "/")
+                for segment in ("pygame/tests", "pygame/examples")
+            )
+        ]
     datas += package_datas
     binaries += package_binaries
     hiddenimports += package_hiddenimports
@@ -41,7 +62,15 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["pytest", "IPython", "matplotlib", "notebook", "tkinter.test"],
+    excludes=[
+        "pytest",
+        "IPython",
+        "matplotlib",
+        "notebook",
+        "tkinter.test",
+        "pygame.tests",
+        "pygame.examples",
+    ],
     noarchive=False,
     optimize=1,
 )

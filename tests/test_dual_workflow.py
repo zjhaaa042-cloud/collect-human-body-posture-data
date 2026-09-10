@@ -111,6 +111,82 @@ class DualWorkflowTests(unittest.IsolatedAsyncioTestCase):
             })
             service.close()
 
+    async def test_capture_waits_for_async_announcement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            camera_lock = asyncio.Lock()
+            gemini = FakeCamera("C336L", camera_lock)
+            d435i = FakeCamera("CD435I", camera_lock)
+            service = DualWorkflowService(lambda: (gemini, d435i))
+            service.create_session(subject_id="S0001", output_path=directory)
+            announcement_started = asyncio.Event()
+            release_announcement = asyncio.Event()
+
+            async def announce():
+                announcement_started.set()
+                await release_announcement.wait()
+
+            committed = {"attempt_id": "capture_test", "state": {}, "capture": {}}
+            with mock.patch.object(service.store, "commit_group", return_value=committed):
+                task = asyncio.create_task(service.capture_group(
+                    subject_id="S0001",
+                    yaw_deg=0,
+                    distance_mm=2500,
+                    ready=True,
+                    capture_lock=asyncio.Lock(),
+                    camera_lock=camera_lock,
+                    set_capturing=lambda value: None,
+                    announce=announce,
+                    settle_seconds=0,
+                    interval_ms=0,
+                ))
+                await announcement_started.wait()
+                self.assertEqual(gemini.calls + d435i.calls, 0)
+                release_announcement.set()
+                await task
+            self.assertEqual(gemini.calls, 5)
+            self.assertEqual(d435i.calls, 5)
+            service.close()
+
+    async def test_capture_keeps_two_second_settle_when_announcement_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            camera_lock = asyncio.Lock()
+            gemini = FakeCamera("C336L", camera_lock)
+            d435i = FakeCamera("CD435I", camera_lock)
+            service = DualWorkflowService(lambda: (gemini, d435i))
+            service.create_session(subject_id="S0001", output_path=directory)
+            observed_before_settle = []
+
+            async def announce():
+                return False
+
+            async def fake_sleep(seconds):
+                observed_before_settle.append((seconds, gemini.calls, d435i.calls))
+
+            committed = {"attempt_id": "capture_test", "state": {}, "capture": {}}
+            with (
+                mock.patch.object(service.store, "commit_group", return_value=committed),
+                mock.patch(
+                    "backend.application.dual_workflow.asyncio.sleep",
+                    side_effect=fake_sleep,
+                ) as sleep_mock,
+            ):
+                await service.capture_group(
+                    subject_id="S0001",
+                    yaw_deg=0,
+                    distance_mm=2500,
+                    ready=True,
+                    capture_lock=asyncio.Lock(),
+                    camera_lock=camera_lock,
+                    set_capturing=lambda value: None,
+                    announce=announce,
+                    settle_seconds=2,
+                    interval_ms=0,
+                )
+            self.assertEqual(sleep_mock.await_args_list[0], mock.call(2))
+            self.assertEqual(observed_before_settle[0], (2, 0, 0))
+            self.assertEqual((gemini.calls, d435i.calls), (5, 5))
+            service.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+import inspect
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -153,7 +154,7 @@ class DualWorkflowService:
         capture_lock: asyncio.Lock,
         camera_lock: asyncio.Lock,
         set_capturing: Callable[[bool], None],
-        announce: Callable[[], None] | None = None,
+        announce: Callable[[], Any] | None = None,
         settle_seconds: float = 2.0,
         frame_count: int = 5,
         interval_ms: float = 150.0,
@@ -177,7 +178,9 @@ class DualWorkflowService:
             set_capturing(True)
             try:
                 if announce is not None:
-                    announce()
+                    announcement = announce()
+                    if inspect.isawaitable(announcement):
+                        await announcement
                 await asyncio.sleep(settle_seconds)
                 # Preview, connect/disconnect, and a formal burst must never ask
                 # either SDK for frames concurrently.

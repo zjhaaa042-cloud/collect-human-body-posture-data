@@ -6,7 +6,7 @@ import json
 import time
 from pathlib import Path
 import numpy as np
-from typing import Callable, Optional
+from typing import Callable, Iterable
 from loguru import logger
 
 try:
@@ -20,7 +20,12 @@ except ImportError:
 
 
 class VoiceRecognizer:
-    def __init__(self, model_path: str, sample_rate: int = 16000):
+    def __init__(
+        self,
+        model_path: str,
+        sample_rate: int = 16000,
+        phrases: Iterable[str] | None = None,
+    ):
         self.model_path = model_path
         self.sample_rate = sample_rate
         self.model = None
@@ -36,6 +41,9 @@ class VoiceRecognizer:
         # 100 ms chunks keep microphone and partial recognition latency low.
         self.chunk_size = max(800, self.sample_rate // 10)
         self._last_partial = ""
+        self._phrases = tuple(str(item).strip() for item in (phrases or ()) if str(item).strip())
+        self._commands_suspended_until = 0.0
+        self._recognizer_lock = threading.RLock()
         self.initialization_error = ""
 
         if HAS_VOSK:
@@ -62,7 +70,7 @@ class VoiceRecognizer:
         try:
             self.model_path = str(model_path)
             self.model = vosk.Model(self.model_path)
-            self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate)
+            self.recognizer = self._new_recognizer()
             self.audio = pyaudio.PyAudio()
             
             # List available audio devices
@@ -80,9 +88,42 @@ class VoiceRecognizer:
             self.model = None
             logger.warning(f"Voice recognition disabled: {e}")
 
+    @property
+    def available(self) -> bool:
+        return bool(HAS_VOSK and self.model and self.audio)
+
+    def _new_recognizer(self):
+        if self._phrases:
+            grammar = json.dumps([*self._phrases, "[unk]"], ensure_ascii=False)
+            try:
+                return vosk.KaldiRecognizer(self.model, self.sample_rate, grammar)
+            except Exception as exc:
+                logger.warning(f"Unable to apply constrained voice grammar: {exc}")
+        return vosk.KaldiRecognizer(self.model, self.sample_rate)
+
+    def reset_context(self) -> None:
+        with self._recognizer_lock:
+            self._last_partial = ""
+            if self.recognizer is not None:
+                try:
+                    self.recognizer.Reset()
+                except Exception:
+                    self.recognizer = self._new_recognizer()
+
+    def suspend_commands(self, seconds: float) -> None:
+        self._commands_suspended_until = time.monotonic() + max(0.0, float(seconds))
+
+    def commands_suspended(self) -> bool:
+        return time.monotonic() < self._commands_suspended_until
+
     def start_listening(self, callback: Callable[[str], None], activity_callback: Callable[[bool], None] = None):
-        if not HAS_VOSK or not self.model:
+        if not self.available:
             return False
+
+        if self.is_listening:
+            self.callback = callback
+            self.activity_callback = activity_callback
+            return True
 
         self.callback = callback
         self.activity_callback = activity_callback
@@ -104,6 +145,7 @@ class VoiceRecognizer:
         except Exception as e:
             logger.error(f"Failed to start voice recognition: {e}")
             self.is_listening = False
+            self.stream = None
             return False
 
     def stop_listening(self):
@@ -111,8 +153,14 @@ class VoiceRecognizer:
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2)
         if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
+            try:
+                self.stream.stop_stream()
+                self.stream.close()
+            except Exception:
+                pass
+        self.stream = None
+        self.thread = None
+        self.reset_context()
         logger.info("Voice recognition stopped")
 
     def _calculate_rms(self, data):
@@ -144,15 +192,19 @@ class VoiceRecognizer:
                     logger.debug(f"Voice activity: {is_active} (RMS: {rms:.1f})")
                     self.activity_callback(is_active)
                 
-                if self.recognizer.AcceptWaveform(data):
-                    result = self.recognizer.Result()
+                with self._recognizer_lock:
+                    accepted = self.recognizer.AcceptWaveform(data)
+                    result = self.recognizer.Result() if accepted else None
+                    partial_result = self.recognizer.PartialResult() if not accepted else None
+
+                if accepted:
                     if isinstance(result, str):
                         try:
                             result = json.loads(result)
                         except Exception:
                             result = {}
                     text = result.get('text', '') if isinstance(result, dict) else ''
-                    if text:
+                    if text and not self.commands_suspended():
                         self._last_partial = ""
                         logger.info(f"Voice recognized: {text}")
                         if self.callback:
@@ -161,10 +213,10 @@ class VoiceRecognizer:
                     # Vosk's final result waits for an end-of-speech pause.  Commands
                     # can be acted on safely from a changed partial result instead.
                     try:
-                        partial = json.loads(self.recognizer.PartialResult()).get("partial", "").strip()
+                        partial = json.loads(partial_result).get("partial", "").strip()
                     except Exception:
                         partial = ""
-                    if partial and partial != self._last_partial:
+                    if partial and partial != self._last_partial and not self.commands_suspended():
                         self._last_partial = partial
                         if self.callback:
                             self.callback(partial)
@@ -181,3 +233,4 @@ class VoiceRecognizer:
         self.stop_listening()
         if self.audio:
             self.audio.terminate()
+            self.audio = None

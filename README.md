@@ -23,7 +23,7 @@
 | 受试者管理 | 登记一次后在八角度、人体测量和完成步骤中复用；支持从原输出目录恢复 |
 | 八角度管理 | 固定按 0°–315° 每 45° 顺序采集并展示进度 |
 | 人工测量 | M01 身高、M03 肩峰间宽、M06 胸围、M09 腰围、M12 臀围必填，其余选填 |
-| 语音控制 | 可选且需显式启用；协议采集事务开始后不可中途取消 |
+| 语音播报与控制 | 默认开启；播报和麦克风可分别关闭，就位确认后可用完整口令免手采集 |
 | 统一工作台 | 受试者登记 → 双机八角度 → 人体测量 → 完成 |
 | 可审计存储 | 原子提交、逐文件 SHA-256、sidecar、独占锁和中断恢复 |
 
@@ -85,7 +85,7 @@ npm install
 cd ..
 ```
 
-语音识别为可选能力。启用时，将 Vosk 中文模型放到 `models/`，并确保 `config.json` 中的 `voice.model_path` 指向该目录。详细说明见 [INSTALL.md](INSTALL.md)。
+语音播报和离线语音识别默认开启。开发环境需将 Vosk 中文模型放到 `models/`，并确保 `config.json` 中的 `voice.model_path` 指向该目录；Windows 安装包会携带构建时校验通过的模型。详细说明见 [INSTALL.md](INSTALL.md)。
 
 ### 3. 启动系统
 
@@ -250,7 +250,8 @@ data/sessions/<session_id>/
 | `storage` | `save_*`、`quality_check` | 旧版兼容字段，不会关闭正式协议的五个必存模态 |
 | `distance` | `min_distance_mm`、`max_distance_mm` | 预览初始值；正式采集由当前条件距离动态覆盖 |
 | `distance` | `min_edge_margin`、`min_quality_score` | 姿态/质量提示阈值，不是正式协议硬门禁 |
-| `voice` | `enabled`、`model_path` | 语音功能和 Vosk 模型 |
+| `voice` | `output_enabled`、`recognition_enabled` | 语音播报和离线命令识别的独立默认开关 |
+| `voice` | `model_path`、`capture_arm_timeout_seconds` | Vosk 模型和就位确认后的语音待命秒数 |
 | `gui` | `preview_fps`、`jpeg_quality` | 预览帧率和画质 |
 
 相机曝光、增益和白平衡等设备参数位于 `config/camera_params.json`。
@@ -260,9 +261,11 @@ data/sessions/<session_id>/
 
 | 指令 | 动作 |
 | --- | --- |
-| “开始采集” | 仅在协议语音控制已启用时，采集当前条件 |
-| “停止” | 不会中断已经开始的五帧原子采集事务 |
-| “完成” | 仅在协议语音控制已启用时，尝试完成当前受试者 |
+| “开始采集” | 仅在当前角度已勾选就位确认且 30 秒待命尚未过期时，开始双机采集 |
+| “重复提示” | 按当前任务真实状态重新播报下一步操作 |
+| “取消采集” | 取消尚未触发的语音待命；不会中断已经开始的原子采集事务 |
+
+系统只接受表中的完整口令，不接受“开始”“采集”“好了”等宽泛词。顶部扬声器和麦克风按钮可分别控制播报与识别，选择会保存在本机。
 
 ## 数据存储
 

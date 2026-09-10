@@ -121,6 +121,14 @@ class DualSessionStoreTests(unittest.TestCase):
             completed = store.complete_session("S0002")
             self.assertEqual(completed["status"], "COMPLETE")
             self.assertTrue(completed["completion"]["completed"])
+            revised_records = [dict(record) for record in records]
+            revised_records[0]["m1"] = 101.0
+            revised_records[0]["m2"] = 101.0
+            revised = store.save_anthropometry("S0002", revised_records, definitions)
+            self.assertEqual(revised["status"], "COMPLETE")
+            self.assertEqual(revised["anthropometry"]["revision"], 2)
+            self.assertEqual(revised["anthropometry"]["records"][0]["m1"], 101.0)
+            self.assertEqual(revised["anthropometry"]["history"][0]["records"][0]["m1"], 100.0)
             with self.assertRaisesRegex(DualSessionStoreError, "完成"):
                 store.commit_group(
                     "S0002", 0,

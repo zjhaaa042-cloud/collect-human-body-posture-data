@@ -59,8 +59,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\realsense\v2.54.2\re
 ### 4. 下载 Vosk 中文语音模型
 
 1. 访问 <https://alphacephei.com/vosk/models>
-2. 下载中文模型，例如 `vosk-model-cn-0.22`
-3. 解压到 `models/vosk-model-cn/` 目录
+2. 下载中文小型模型 `vosk-model-small-cn-0.22`
+3. 解压到 `models/vosk-model-small-cn-0.22/`，确认其中存在 `am/final.mdl` 和 `conf/model.conf`
+
+Windows 安装包构建会校验该模型以及 `edge-tts`、`pygame`、`pyaudio`、`vosk` 依赖；缺失时构建会直接失败并给出路径。
 
 ### 5. 安装前端依赖
 

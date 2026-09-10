@@ -86,6 +86,11 @@
   background: var(--primary-light) !important;
 }
 
+.header-btn-inactive {
+  color: var(--text-tertiary) !important;
+  background: var(--bg-tertiary) !important;
+}
+
 .header-btn:focus-visible,
 .image-modal-close:focus-visible {
   outline: 3px solid var(--focus-ring);

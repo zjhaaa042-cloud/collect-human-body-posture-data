@@ -54,7 +54,13 @@ function AppContent() {
   return (
     <Layout className="app-layout">
       <a className="skip-link" href="#protocol-workspace">跳到协议工作区</a>
-      <AppHeader onOpenDiagnostics={() => setDiagnosticOpen(true)} onExit={exitApp} />
+      <AppHeader
+        voiceStatus={collector.voiceStatus}
+        onToggleVoiceOutput={collector.setVoiceOutputEnabled}
+        onToggleVoiceRecognition={collector.setVoiceRecognitionEnabled}
+        onOpenDiagnostics={() => setDiagnosticOpen(true)}
+        onExit={exitApp}
+      />
       <Content className="app-content">
         <main className="main-container" id="protocol-workspace">
           <section className="panel-left" aria-label="RGB-D 实时预览">
@@ -87,6 +93,7 @@ function AppContent() {
         <StatusBar
           connected={collector.connected}
           cameraConnected={collector.cameraStatus?.connected}
+          voiceStatus={collector.voiceStatus}
           subjectId={collector.dualSessionState?.subject_id}
           progress={collector.dualSessionState?.progress || { captured: 0, expected: 8 }}
         />

@@ -16,12 +16,19 @@ class CameraSettings(BaseModel):
 
 
 class VoiceSettings(BaseModel):
-    enabled: bool = False
+    # ``enabled`` was the pre-1.1 master switch.  It is intentionally kept as
+    # a read-only compatibility field; new installs and upgrades use the two
+    # independent runtime controls below.
+    enabled: Optional[bool] = None
+    output_enabled: bool = True
+    recognition_enabled: bool = True
     model_path: str = "models/vosk-model-small-cn-0.22"
     language: str = "zh"
     tts_voice: str = "zh-CN-XiaoxiaoNeural"
     tts_rate: str = "+0%"
     tts_volume: str = "+0%"
+    tts_online_timeout_seconds: float = 3.0
+    capture_arm_timeout_seconds: int = 30
 
 
 class StorageSettings(BaseModel):
@@ -106,6 +113,13 @@ def load_settings(config_path: str) -> Settings:
         import json
         with open(config_path, 'r', encoding='utf-8') as f:
             config_data = json.load(f)
+        voice_config = config_data.get("voice")
+        if isinstance(voice_config, dict) and "enabled" in voice_config:
+            logger.warning(
+                "voice.enabled is deprecated; output_enabled and "
+                "recognition_enabled now default to true and are controlled "
+                "independently"
+            )
         _settings = _apply_runtime_environment(Settings(**config_data))
         logger.info(f"Settings loaded from {config_path}")
         return _settings

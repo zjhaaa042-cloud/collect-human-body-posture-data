@@ -10,6 +10,18 @@
   font-size: 13px;
 }
 
+.status-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .status-left,
 .status-right {
   display: flex;
@@ -55,6 +67,11 @@
   border-radius: 2px;
   transition: height 0.05s ease;
 }
+
+.status-voice-bar:nth-child(1) { height: 6px; }
+.status-voice-bar:nth-child(2) { height: 12px; }
+.status-voice-bar:nth-child(3) { height: 17px; }
+.status-voice-bar:nth-child(4) { height: 10px; }
 
 .status-voice-indicator.active .status-voice-bar {
   background: var(--accent);

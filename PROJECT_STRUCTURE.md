@@ -46,7 +46,7 @@ body_posture_collector/
 │   │
 │   └── voice/                        # 语音模块
 │       ├── __init__.py
-│       ├── command_parser.py         # 命令解析：语音指令识别与映射
+│       ├── command_parser.py         # 严格命令解析：开始采集/重复提示/取消采集
 │       ├── recognizer.py             # 语音识别：Vosk 中文语音识别
 │       └── synthesizer.py            # 语音合成：Edge-TTS 文字转语音
 │
@@ -132,7 +132,7 @@ body_posture_collector/
 | **帧处理** | `utils/frame_processor.py` | JPEG 编码，深度图可视化，分辨率缩放 |
 | **语音识别** | `voice/recognizer.py` | Vosk 中文语音识别，麦克风音频流处理 |
 | **语音合成** | `voice/synthesizer.py` | Edge-TTS 文字转语音，临时文件管理 |
-| **命令解析** | `voice/command_parser.py` | 语音指令解析(开始采集/停止/下一个/完成) |
+| **命令解析** | `voice/command_parser.py` | 仅接受开始采集、重复提示、取消采集三个完整口令 |
 | **配置管理** | `config/settings.py` | Pydantic 配置模型，从 config.json 加载 |
 
 ### 前端模块
@@ -166,6 +166,10 @@ body_posture_collector/
 | `get_capture_image` | `filename` | 获取采集图像(base64) |
 | `get_distance` | — | 获取当前距离信息 |
 | `speak` | `text` | 语音合成播放 |
+| `get_voice_status` | — | 获取扬声器、麦克风、聆听与语音待命状态 |
+| `set_voice_preferences` | `output_enabled, recognition_enabled` | 分别设置语音播报与语音识别开关 |
+| `arm_dual_voice_capture` | `subject_id, yaw_deg, distance_mm` | 将当前双机角度武装为一次性语音待命 |
+| `disarm_dual_voice_capture` | — | 解除尚未触发的语音待命 |
 | `exit_app` | — | 退出应用 |
 
 ### 服务端 → 客户端
@@ -180,6 +184,10 @@ body_posture_collector/
 | `capture_image` | `filename, image(base64)` | 采集图像 |
 | `distance_update` | `distance_mm, status, message` | 距离更新 |
 | `voice_activity` | `active` | 语音活动状态 |
+| `voice_status` | `output_*, recognition_*, listening, speaking, capture_armed, expires_at, last_error` | 统一语音状态与待命倒计时 |
+| `voice_control_result` | `action, success, error` | 语音开关或待命操作结果 |
+| `voice_command_event` | `command, status, message` | 严格口令的接受或拒绝结果 |
+| `dual_capture_result` | `success, trigger, yaw_deg, ...` | 双机采集结果；`trigger` 为 `ui` 或 `voice` |
 | `session_finished` | `capture_count` | 会话完成 |
 | `exit_confirm` | `message` | 退出确认 |
 | `error` | `message` | 错误信息 |
@@ -268,7 +276,7 @@ go.bat
 | 配置组 | 关键参数 | 说明 |
 |--------|----------|------|
 | `camera` | `width=1280, height=800, fps=30` | 相机分辨率和帧率 |
-| `voice` | `enabled, model_path, tts_voice` | 语音系统开关和模型 |
+| `voice` | `output_enabled, recognition_enabled, model_path` | 独立播报/识别开关和离线模型 |
 | `storage` | `output_dir, save_rgb/depth/pointcloud` | 存储路径和保存选项 |
 | `distance` | `target_distance_mm=1000, tolerance_mm=200` | 目标距离和容差 |
 | `gui` | `preview_fps=20, jpeg_quality=50` | 预览参数 |

@@ -75,6 +75,18 @@ _MAX_AUTO_DISTANCE_DELTA_MM = 1000.0
 _MAX_AUTO_CAPTURE_COUNT = 100
 _MAX_AUTO_CAPTURE_INTERVAL_SEC = 60.0
 _LEGACY_WRITES_ENABLED = False
+_VOICE_POST_SPEECH_SUPPRESSION_SEC = 0.75
+_VOICE_WORKFLOW_TIMEOUT_SEC = 8.0
+_DUAL_ANGLE_NAMES_ZH = {
+    0: "正面",
+    45: "右前",
+    90: "右侧",
+    135: "右后",
+    180: "背面",
+    225: "左后",
+    270: "左侧",
+    315: "左前",
+}
 
 
 def _choose_native_output_directory() -> str:
@@ -118,6 +130,8 @@ _CAMERA_BACKEND_BY_CODE = {"C336L": "orbbec", "CD435I": "realsense"}
 _OPERATOR_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 _PROTOCOL_BURST_FRAMES = 5
 _PROTOCOL_BURST_INTERVAL_SEC = 0.15
+_DUAL_CAPTURE_SETTLE_SECONDS = 0.35
+_DUAL_BURST_INTERVAL_SEC = 0.075
 _PROTOCOL_QC_VERSION = "realanthro-qc-pilot-v1"
 _REVIEW_EVIDENCE_TOKEN_TTL_SEC = 600.0
 _REQUIRED_OPERATOR_CONFIRMATIONS = (
@@ -286,6 +300,16 @@ class WebSocketServer:
         self.voice_recognizer = None
         self.voice_synthesizer = None
         self.voice_parser = VoiceCommandParser()
+        self.voice_output_enabled = bool(self.settings.voice.output_enabled)
+        self.voice_recognition_enabled = bool(
+            self.settings.voice.recognition_enabled
+        )
+        self._voice_input_active = False
+        self._voice_tts_active = False
+        self._voice_command_suppressed_until = 0.0
+        self._voice_last_error = ""
+        self._dual_voice_arm = None
+        self._dual_voice_arm_task = None
         self.voice_protocol_armed = False
         self.loop = None  # Store reference to main event loop
 
@@ -333,40 +357,173 @@ class WebSocketServer:
         return target_w, max(1, round(target_w * raw_h / raw_w))
 
     def _setup_voice(self):
-        if self.settings.voice.enabled:
-            try:
-                self.voice_recognizer = VoiceRecognizer(self.settings.voice.model_path)
-                self.voice_synthesizer = VoiceSynthesizer(
-                    voice=self.settings.voice.tts_voice,
-                    rate=self.settings.voice.tts_rate,
-                    volume=self.settings.voice.tts_volume
-                )
+        try:
+            self.voice_synthesizer = VoiceSynthesizer(
+                voice=self.settings.voice.tts_voice,
+                rate=self.settings.voice.tts_rate,
+                volume=self.settings.voice.tts_volume,
+                online_timeout_seconds=(
+                    self.settings.voice.tts_online_timeout_seconds
+                ),
+            )
+            self.voice_synthesizer.set_enabled(self.voice_output_enabled)
+            self.voice_synthesizer.set_activity_callback(self._on_tts_activity)
+            logger.info("Voice output initialized")
+        except Exception as exc:
+            self.voice_synthesizer = None
+            self._voice_last_error = f"语音播报初始化失败：{exc}"
+            logger.error(self._voice_last_error)
+
+        try:
+            self.voice_recognizer = VoiceRecognizer(
+                self.settings.voice.model_path,
+                phrases=self.voice_parser.recognition_phrases(),
+            )
+            if self.voice_recognition_enabled:
                 recognition_started = self.voice_recognizer.start_listening(
                     self._on_voice_command,
-                    self._on_voice_activity
+                    self._on_voice_activity,
                 )
                 if not recognition_started:
-                    self.voice_recognizer = None
-                    logger.info(
-                        "Voice commands are disabled until a complete Vosk model is installed"
+                    self._voice_last_error = (
+                        self.voice_recognizer.initialization_error
+                        or "语音识别无法启动，请检查麦克风和 Vosk 模型"
                     )
-                logger.info("Voice output initialized")
-            except Exception as e:
-                logger.error(f"Failed to setup voice: {e}")
+                    logger.warning(self._voice_last_error)
+            logger.info("Voice command service initialized")
+        except Exception as exc:
+            self.voice_recognizer = None
+            self._voice_last_error = f"语音识别初始化失败：{exc}"
+            logger.error(self._voice_last_error)
+
+    def _voice_status_snapshot(self) -> dict:
+        arm = getattr(self, "_dual_voice_arm", None)
+        now = time.monotonic()
+        armed = bool(arm and float(arm.get("expires_monotonic", 0.0)) > now)
+        synthesizer = getattr(self, "voice_synthesizer", None)
+        recognizer = getattr(self, "voice_recognizer", None)
+        last_error = str(getattr(self, "_voice_last_error", "") or "")
+        if synthesizer and synthesizer.last_error:
+            last_error = synthesizer.last_error
+        recognition_enabled = bool(
+            getattr(self, "voice_recognition_enabled", False)
+        )
+        if (
+            recognition_enabled
+            and recognizer
+            and recognizer.initialization_error
+            and not recognizer.available
+        ):
+            last_error = recognizer.initialization_error
+        voice_settings = getattr(getattr(self, "settings", None), "voice", None)
+        arm_timeout = int(
+            max(
+                5,
+                min(
+                    300,
+                    float(getattr(voice_settings, "capture_arm_timeout_seconds", 30)),
+                ),
+            )
+        )
+        return {
+            "output_enabled": bool(getattr(self, "voice_output_enabled", False)),
+            "output_available": bool(synthesizer and synthesizer.available),
+            "recognition_enabled": recognition_enabled,
+            "recognition_available": bool(recognizer and recognizer.available),
+            "listening": bool(recognizer and recognizer.is_listening),
+            "activity": bool(getattr(self, "_voice_input_active", False)),
+            "speaking": bool(synthesizer and synthesizer.is_speaking),
+            "capture_armed": armed,
+            "armed_subject_id": arm.get("subject_id") if armed else None,
+            "armed_yaw_deg": arm.get("yaw_deg") if armed else None,
+            "expires_at": arm.get("expires_at") if armed else None,
+            "remaining_seconds": (
+                max(0, int(float(arm["expires_monotonic"]) - now + 0.999))
+                if armed
+                else 0
+            ),
+            "capture_arm_timeout_seconds": arm_timeout,
+            "last_error": last_error or None,
+            "accepted_commands": list(self.voice_parser.accepted_phrases()),
+        }
+
+    async def _emit_voice_status(self, websocket=None) -> dict:
+        status = self._voice_status_snapshot()
+        await self._emit_protocol_message(
+            websocket,
+            {"type": "voice_status", "data": status},
+        )
+        return status
+
+    async def _emit_voice_control_result(
+        self,
+        websocket,
+        *,
+        action: str,
+        success: bool,
+        error: str | None = None,
+    ) -> None:
+        await self._emit_protocol_message(
+            websocket,
+            {
+                "type": "voice_control_result",
+                "data": {
+                    "action": action,
+                    "success": bool(success),
+                    "error": error,
+                },
+            },
+        )
+
+    def _schedule_voice_status(self) -> None:
+        if self.loop and not self.loop.is_closed():
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._emit_voice_status(None),
+                    self.loop,
+                )
+            except Exception:
+                pass
+
+    def _on_tts_activity(self, is_active: bool):
+        self._voice_tts_active = bool(is_active)
+        recognizer = self.voice_recognizer
+        if recognizer:
+            if is_active:
+                recognizer.suspend_commands(60.0)
+            else:
+                recognizer.reset_context()
+                recognizer.suspend_commands(_VOICE_POST_SPEECH_SUPPRESSION_SEC)
+                self._voice_command_suppressed_until = (
+                    time.monotonic() + _VOICE_POST_SPEECH_SUPPRESSION_SEC
+                )
+        self._schedule_voice_status()
 
     def _on_voice_activity(self, is_active: bool):
         """Broadcast voice activity status to all clients"""
+        self._voice_input_active = bool(is_active)
         if self.loop and not self.loop.is_closed():
             try:
                 asyncio.run_coroutine_threadsafe(
                     self._broadcast_voice_activity(is_active),
                     self.loop
                 )
+                asyncio.run_coroutine_threadsafe(
+                    self._emit_voice_status(None),
+                    self.loop,
+                )
             except Exception:
                 pass
 
     def _on_voice_command(self, text: str):
-        if self.voice_synthesizer and self.voice_synthesizer.is_speaking:
+        if not getattr(self, "voice_recognition_enabled", False):
+            return
+        if (
+            getattr(self, "_voice_tts_active", False)
+            or (self.voice_synthesizer and self.voice_synthesizer.is_speaking)
+            or time.monotonic()
+            < getattr(self, "_voice_command_suppressed_until", 0.0)
+        ):
             return
         command = self.voice_parser.execute_command(text)
         if command == VoiceCommand.UNKNOWN:
@@ -379,41 +536,354 @@ class WebSocketServer:
             return
         self._last_voice_command = command
         self._last_voice_command_at = now
-        if command == VoiceCommand.START_CAPTURE:
-            if not self.active_protocol_subject_id:
-                logger.info("Ignored voice capture: legacy capture is disabled")
-                return
-            if not self.voice_protocol_armed:
-                logger.info("Ignored protocol voice capture: voice control is not armed")
-                return
-            if self.loop and not self.loop.is_closed():
-                try:
-                    state = self._protocol_subject_state(self.active_protocol_subject_id)
-                    condition_id = state.get("next_condition_id")
-                    coroutine = self._capture_protocol_condition(
-                        None,
-                        {"condition_id": condition_id},
+        if self.loop and not self.loop.is_closed():
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._execute_dual_voice_command(command, text),
+                    self.loop,
+                )
+            except Exception:
+                pass
+
+    @staticmethod
+    def _dual_angle_voice_label(yaw_deg: int) -> str:
+        angle = int(yaw_deg)
+        return f"{angle}度{_DUAL_ANGLE_NAMES_ZH.get(angle, '角度')}"
+
+    def _queue_voice(
+        self,
+        text: str,
+        *,
+        key: str | None = None,
+        priority: int = 10,
+    ) -> bool:
+        synthesizer = self.voice_synthesizer
+        if not synthesizer or not self.voice_output_enabled:
+            return False
+        return synthesizer.speak(
+            text,
+            blocking=False,
+            key=key,
+            priority=priority,
+        )
+
+    async def _speak_voice_and_wait(
+        self,
+        text: str,
+        *,
+        key: str,
+        priority: int = 0,
+    ) -> bool:
+        synthesizer = self.voice_synthesizer
+        if not synthesizer or not self.voice_output_enabled:
+            return False
+        return await asyncio.to_thread(
+            synthesizer.speak,
+            text,
+            True,
+            key=key,
+            priority=priority,
+            timeout=_VOICE_WORKFLOW_TIMEOUT_SEC,
+        )
+
+    async def _set_voice_preferences(self, websocket, data: dict) -> dict:
+        output_changed = False
+        if "output_enabled" in data:
+            requested_output = data.get("output_enabled")
+            if not isinstance(requested_output, bool):
+                raise ValueError("output_enabled 必须是布尔值")
+            output_changed = requested_output != self.voice_output_enabled
+            self.voice_output_enabled = requested_output
+            if self.voice_synthesizer:
+                self.voice_synthesizer.set_enabled(requested_output)
+
+        if "recognition_enabled" in data:
+            requested_recognition = data.get("recognition_enabled")
+            if not isinstance(requested_recognition, bool):
+                raise ValueError("recognition_enabled 必须是布尔值")
+            self.voice_recognition_enabled = requested_recognition
+            recognizer = self.voice_recognizer
+            if requested_recognition:
+                if recognizer and not recognizer.is_listening:
+                    started = await asyncio.to_thread(
+                        recognizer.start_listening,
+                        self._on_voice_command,
+                        self._on_voice_activity,
                     )
-                    asyncio.run_coroutine_threadsafe(coroutine, self.loop)
-                except Exception:
-                    pass
-        elif command == VoiceCommand.STOP_CAPTURE:
-            logger.info(
-                "Ignored voice stop: a RealAnthro condition transaction cannot be cancelled"
+                    if not started:
+                        self._voice_last_error = (
+                            recognizer.initialization_error
+                            or "语音识别无法启动，请检查麦克风"
+                        )
+                    else:
+                        self._voice_last_error = ""
+                elif recognizer is None:
+                    self._voice_last_error = "语音识别组件不可用"
+            else:
+                await self._disarm_dual_voice_capture(reason="recognition_disabled")
+                if recognizer and recognizer.is_listening:
+                    await asyncio.to_thread(recognizer.stop_listening)
+                self._voice_input_active = False
+
+        status = await self._emit_voice_status(None)
+        if output_changed and self.voice_output_enabled:
+            self._queue_voice(
+                "语音播报已开启。",
+                key="voice_output_enabled",
+                priority=0,
             )
-        elif command == VoiceCommand.FINISH:
-            if not self.active_protocol_subject_id:
-                logger.info("Ignored voice finish: legacy sessions are read-only")
+        return status
+
+    async def _expire_dual_voice_arm(self, token: str, timeout: float) -> None:
+        try:
+            await asyncio.sleep(timeout)
+            arm = self._dual_voice_arm
+            if arm and arm.get("token") == token:
+                self._dual_voice_arm = None
+                self._dual_voice_arm_task = None
+                await self._emit_voice_status(None)
+        except asyncio.CancelledError:
+            pass
+
+    async def _disarm_dual_voice_capture(
+        self,
+        *,
+        reason: str,
+        owner=None,
+    ) -> bool:
+        arm = getattr(self, "_dual_voice_arm", None)
+        if not arm:
+            return False
+        if owner is not None and arm.get("owner") is not owner:
+            return False
+        self._dual_voice_arm = None
+        task = getattr(self, "_dual_voice_arm_task", None)
+        self._dual_voice_arm_task = None
+        if task and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+        logger.info(f"Dual voice capture disarmed: {reason}")
+        await self._emit_voice_status(None)
+        return True
+
+    async def _arm_dual_voice_capture(self, websocket, data: dict) -> dict:
+        if not self.voice_recognition_enabled:
+            raise ValueError("麦克风语音命令已关闭")
+        recognizer = self.voice_recognizer
+        if not recognizer or not recognizer.available or not recognizer.is_listening:
+            raise ValueError("语音识别不可用，请检查麦克风和 Vosk 模型")
+        if self.capture_lock.locked() or self.is_capturing:
+            raise ValueError("正在采集中，不能重新进入语音待命")
+
+        subject_id = validate_subject_id(
+            str(data.get("subject_id") or "").strip().upper()
+        )
+        try:
+            yaw_deg = int(data.get("yaw_deg"))
+            distance_mm = int(data.get("distance_mm"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("语音待命必须绑定有效角度和距离") from exc
+        if not 250 <= distance_mm <= 6000:
+            raise ValueError("语音待命距离必须在 250–6000 mm")
+
+        state = await asyncio.to_thread(self.dual_workflow.public_state)
+        if not state.get("active") or state.get("subject_id") != subject_id:
+            raise ValueError("语音待命必须属于当前活动受试者")
+        if state.get("reconciliation_required"):
+            raise ValueError("任务存在待恢复或完整性异常，不能进入语音待命")
+        if state.get("next_yaw_deg") is None:
+            raise ValueError("双机八角度已完成，无需继续采集")
+        if int(state["next_yaw_deg"]) != yaw_deg:
+            raise ValueError(f"当前下一角度为 {state['next_yaw_deg']}°")
+        async with self.camera_lock:
+            camera_status = await asyncio.to_thread(
+                self._camera_status_snapshot,
+                "status",
+            )
+        if not camera_status.get("dual_ready"):
+            raise ValueError("两台相机尚未同时就绪")
+
+        existing = self._dual_voice_arm
+        if existing and all(
+            existing.get(key) == value
+            for key, value in {
+                "owner": websocket,
+                "subject_id": subject_id,
+                "yaw_deg": yaw_deg,
+                "distance_mm": distance_mm,
+            }.items()
+        ) and float(existing.get("expires_monotonic", 0.0)) > time.monotonic():
+            return await self._emit_voice_status(None)
+
+        await self._disarm_dual_voice_capture(reason="rearmed")
+        timeout = max(5, min(300, int(self.settings.voice.capture_arm_timeout_seconds)))
+        token = secrets.token_urlsafe(16)
+        expires_monotonic = time.monotonic() + timeout
+        expires_at = datetime.fromtimestamp(
+            time.time() + timeout,
+            timezone.utc,
+        ).isoformat()
+        self._dual_voice_arm = {
+            "token": token,
+            "owner": websocket,
+            "subject_id": subject_id,
+            "yaw_deg": yaw_deg,
+            "distance_mm": distance_mm,
+            "expires_monotonic": expires_monotonic,
+            "expires_at": expires_at,
+        }
+        self._voice_last_error = ""
+        self._dual_voice_arm_task = asyncio.create_task(
+            self._expire_dual_voice_arm(token, timeout)
+        )
+        status = await self._emit_voice_status(None)
+        self._queue_voice(
+            f"{self._dual_angle_voice_label(yaw_deg)}已就位，可以说开始采集。",
+            key=f"dual_arm:{subject_id}:{yaw_deg}:{token}",
+            priority=2,
+        )
+        return status
+
+    async def _valid_dual_voice_arm(self) -> dict | None:
+        arm = self._dual_voice_arm
+        if not arm:
+            return None
+        if (
+            float(arm.get("expires_monotonic", 0.0)) <= time.monotonic()
+            or arm.get("owner") not in self.clients
+        ):
+            await self._disarm_dual_voice_capture(reason="expired_or_disconnected")
+            return None
+        return dict(arm)
+
+    async def _current_voice_guidance(self) -> str:
+        try:
+            state = await asyncio.to_thread(self.dual_workflow.public_state)
+        except Exception:
+            return "当前任务状态无法读取，请查看界面。"
+        if not state.get("active"):
+            return "请先登记或恢复受试者任务。"
+        if str(state.get("status") or "").upper() == "COMPLETE":
+            return f"受试者{state.get('subject_id')}任务已完成。"
+        yaw_deg = state.get("next_yaw_deg")
+        if yaw_deg is not None:
+            arm = await self._valid_dual_voice_arm()
+            if arm and int(arm.get("yaw_deg")) == int(yaw_deg):
+                return (
+                    f"当前为{self._dual_angle_voice_label(yaw_deg)}，"
+                    "已经就位，可以说开始采集。"
+                )
+            return (
+                f"下一项是{self._dual_angle_voice_label(yaw_deg)}，"
+                "请完成就位确认并勾选确认框。"
+            )
+        if state.get("anthropometry", {}).get("complete") is not True:
+            return "双机八个角度已完成，请进入人体测量并保存五项必填数据。"
+        return "采集和人体测量均已完成，请在界面确认完成受试者任务。"
+
+    async def _emit_voice_command_event(
+        self,
+        command: VoiceCommand,
+        status: str,
+        message: str,
+    ) -> None:
+        await self._broadcast({
+            "type": "voice_command_event",
+            "data": {
+                "command": command.value,
+                "status": status,
+                "message": message,
+            },
+        })
+
+    async def _execute_dual_voice_command(
+        self,
+        command: VoiceCommand,
+        _transcript: str,
+    ) -> None:
+        if command == VoiceCommand.REPEAT:
+            guidance = await self._current_voice_guidance()
+            await self._emit_voice_command_event(command, "accepted", guidance)
+            self._queue_voice(guidance, key=None, priority=1)
+            return
+
+        if command == VoiceCommand.CANCEL:
+            if self.capture_lock.locked() or self.is_capturing:
+                message = "采集进行中，无法取消。"
+                await self._emit_voice_command_event(command, "rejected", message)
+                self._queue_voice(message, key="voice_cancel_during_capture", priority=0)
                 return
-            if not self.voice_protocol_armed:
-                logger.info("Ignored protocol voice finish: voice control is not armed")
-                return
-            if self.loop and not self.loop.is_closed():
-                try:
-                    coroutine = self._complete_protocol_subject(None, {})
-                    asyncio.run_coroutine_threadsafe(coroutine, self.loop)
-                except Exception:
-                    pass
+            disarmed = await self._disarm_dual_voice_capture(reason="voice_cancelled")
+            message = "已取消语音采集待命。" if disarmed else "当前没有待取消的采集。"
+            await self._emit_voice_command_event(command, "accepted", message)
+            self._queue_voice(message, key=None, priority=1)
+            return
+
+        if command != VoiceCommand.START_CAPTURE:
+            return
+
+        arm = await self._valid_dual_voice_arm()
+        if arm is None:
+            message = "请先在界面勾选当前角度的就位确认。"
+            await self._emit_voice_command_event(command, "rejected", message)
+            self._queue_voice(message, key="voice_start_not_armed", priority=0)
+            return
+        if self.capture_lock.locked() or self.is_capturing:
+            message = "采集正在进行，请稍候。"
+            await self._emit_voice_command_event(command, "rejected", message)
+            self._queue_voice(message, key="voice_start_busy", priority=0)
+            return
+
+        subject_id = arm["subject_id"]
+        yaw_deg = int(arm["yaw_deg"])
+        distance_mm = int(arm["distance_mm"])
+        state = await asyncio.to_thread(self.dual_workflow.public_state)
+        async with self.camera_lock:
+            camera_status = await asyncio.to_thread(
+                self._camera_status_snapshot,
+                "status",
+            )
+        if (
+            not state.get("active")
+            or state.get("subject_id") != subject_id
+            or str(state.get("status") or "").upper() != "ACTIVE"
+            or state.get("reconciliation_required")
+            or state.get("next_yaw_deg") is None
+            or int(state.get("next_yaw_deg")) != yaw_deg
+            or not camera_status.get("dual_ready")
+        ):
+            await self._disarm_dual_voice_capture(reason="context_changed")
+            message = "任务、角度或相机状态已变化，请重新确认就位。"
+            await self._emit_voice_command_event(command, "rejected", message)
+            self._queue_voice(message, key="voice_start_context_changed", priority=0)
+            return
+
+        await self._disarm_dual_voice_capture(reason="voice_triggered")
+        await self._emit_voice_command_event(command, "accepted", "语音采集已开始")
+        try:
+            await self._capture_dual_group(None, {
+                "subject_id": subject_id,
+                "yaw_deg": yaw_deg,
+                "distance_mm": distance_mm,
+                "ready": True,
+                "trigger": "voice",
+            })
+        except Exception as exc:
+            logger.warning(f"Voice-triggered dual capture failed: {exc}")
+            message = f"{self._dual_angle_voice_label(yaw_deg)}采集失败，请查看界面后重试。"
+            await self._broadcast({
+                "type": "dual_capture_result",
+                "data": {
+                    "success": False,
+                    "trigger": "voice",
+                    "yaw_deg": yaw_deg,
+                    "error": str(exc),
+                },
+            })
+            self._queue_voice(
+                message,
+                key=f"dual_capture_failed:{subject_id}:{yaw_deg}",
+                priority=0,
+            )
 
     def _build_capture_config(self, options: dict = None) -> CaptureConfig:
         options = options or {}
@@ -2697,10 +3167,19 @@ class WebSocketServer:
             target_distance_mm=target_distance_mm,
         )
         self._apply_dual_distance_target(state)
+        await self._disarm_dual_voice_capture(reason="subject_created")
         result = {"success": True, "state": state}
         await self._emit_protocol_message(websocket, {
             "type": "dual_session_state", "data": {**result["state"], "event": "created"},
         })
+        next_yaw = state.get("next_yaw_deg")
+        if next_yaw is not None:
+            self._queue_voice(
+                f"受试者{subject_id}已登记。下一项是"
+                f"{self._dual_angle_voice_label(next_yaw)}。",
+                key=f"dual_created:{subject_id}",
+                priority=5,
+            )
         return result
 
     async def _open_dual_session(self, websocket, data: dict):
@@ -2714,9 +3193,25 @@ class WebSocketServer:
             output_path=output_path,
         )
         self._apply_dual_distance_target(state)
+        await self._disarm_dual_voice_capture(reason="subject_opened")
         await self._emit_protocol_message(websocket, {
             "type": "dual_session_state", "data": {**state, "event": "opened"},
         })
+        next_yaw = state.get("next_yaw_deg")
+        if next_yaw is not None:
+            announcement = (
+                f"已恢复受试者{subject_id}。下一项是"
+                f"{self._dual_angle_voice_label(next_yaw)}。"
+            )
+        elif state.get("anthropometry", {}).get("complete") is not True:
+            announcement = f"已恢复受试者{subject_id}。请继续人体测量。"
+        else:
+            announcement = f"已恢复受试者{subject_id}。请在界面确认完成任务。"
+        self._queue_voice(
+            announcement,
+            key=f"dual_opened:{subject_id}:{state.get('progress', {}).get('captured', 0)}",
+            priority=5,
+        )
         return state
 
     async def _save_dual_anthropometry(self, websocket, data: dict):
@@ -2741,6 +3236,11 @@ class WebSocketServer:
         await self._emit_protocol_message(websocket, {
             "type": "dual_anthropometry_result", "data": result,
         })
+        self._queue_voice(
+            "人体测量已保存，可以进行任务完成检查。",
+            key=f"dual_measurements_saved:{subject_id}",
+            priority=4,
+        )
         return result
 
     async def _complete_dual_session(self, websocket, data: dict):
@@ -2762,10 +3262,19 @@ class WebSocketServer:
         await self._emit_protocol_message(websocket, {
             "type": "dual_completion_result", "data": result,
         })
+        await self._disarm_dual_voice_capture(reason="subject_completed")
+        self._queue_voice(
+            f"受试者{subject_id}采集任务已完成。",
+            key=f"dual_completed:{subject_id}",
+            priority=0,
+        )
         return result
 
     async def _capture_dual_group(self, websocket, data: dict):
         subject_id = str(data.get("subject_id") or "")
+        trigger = str(data.get("trigger") or "ui").lower()
+        if trigger not in {"ui", "voice"}:
+            raise ValueError("采集触发来源无效")
         distance = data.get("distance_mm")
         try:
             distance_mm = int(distance) if distance not in {None, ""} else None
@@ -2776,11 +3285,17 @@ class WebSocketServer:
         def set_capturing(value: bool) -> None:
             self.is_capturing = value
 
+        await self._disarm_dual_voice_capture(reason=f"capture_started:{trigger}")
+
         def announce() -> None:
-            if self.voice_synthesizer:
-                self.voice_synthesizer.speak(
-                    "请保持姿势不动，两秒后双机采集。", blocking=False
-                )
+            # The operator has already confirmed that the subject is in place.
+            # TTS is informational, so it must not hold the capture transaction
+            # hostage to audio-network latency or speech duration.
+            self._queue_voice(
+                f"即将采集{self._dual_angle_voice_label(yaw_deg)}，请保持不动。",
+                key=f"dual_capture_start:{subject_id}:{yaw_deg}:{time.monotonic()}",
+                priority=0,
+            )
 
         result = await self.dual_workflow.capture_group(
             subject_id=subject_id,
@@ -2791,15 +3306,33 @@ class WebSocketServer:
             camera_lock=self.camera_lock,
             set_capturing=set_capturing,
             announce=announce,
+            settle_seconds=_DUAL_CAPTURE_SETTLE_SECONDS,
             frame_count=_PROTOCOL_BURST_FRAMES,
-            interval_ms=_PROTOCOL_BURST_INTERVAL_SEC * 1000.0,
+            interval_ms=_DUAL_BURST_INTERVAL_SEC * 1000.0,
         )
+        result["trigger"] = trigger
         await self._emit_protocol_message(websocket, {
             "type": "dual_capture_result", "data": result,
         })
         await self._emit_protocol_message(websocket, {
             "type": "dual_session_state", "data": {**result["state"], "event": "updated"},
         })
+        next_yaw = result["state"].get("next_yaw_deg")
+        if next_yaw is None:
+            announcement = (
+                f"{self._dual_angle_voice_label(yaw_deg)}采集完成。"
+                "双机八个角度已全部完成，请进入人体测量。"
+            )
+        else:
+            announcement = (
+                f"{self._dual_angle_voice_label(yaw_deg)}采集完成。下一项是"
+                f"{self._dual_angle_voice_label(next_yaw)}。"
+            )
+        self._queue_voice(
+            announcement,
+            key=f"dual_capture_success:{subject_id}:{yaw_deg}:{result.get('attempt_id')}",
+            priority=1,
+        )
         return result
 
     async def _complete_protocol_subject(self, websocket, data: dict):
@@ -3313,6 +3846,8 @@ class WebSocketServer:
                 action="connect",
                 status=status,
             )
+            if not status.get("dual_ready"):
+                await self._disarm_dual_voice_capture(reason="dual_camera_not_ready")
             if ok:
                 await self._ensure_preview_task()
 
@@ -3376,6 +3911,7 @@ class WebSocketServer:
                 action="disconnect",
                 status=status,
             )
+            await self._disarm_dual_voice_capture(reason="camera_disconnected")
 
     async def _process_http_request(self, connection, request):
         if request.path == "/health":
@@ -3464,6 +4000,7 @@ class WebSocketServer:
         logger.info(f"Client connected: {remote}")
         try:
             await websocket.send(json.dumps({"type": "auth_success"}, ensure_ascii=False))
+            await self._emit_voice_status(websocket)
         except Exception:
             self.clients.discard(websocket)
             return
@@ -3487,6 +4024,10 @@ class WebSocketServer:
         except Exception as e:
             logger.debug(f"Client connection error: {e}")
         finally:
+            await self._disarm_dual_voice_capture(
+                reason="owner_disconnected",
+                owner=websocket,
+            )
             self.clients.discard(websocket)
             logger.info(f"Client disconnected: {remote}")
             if len(self.clients) == 0:
@@ -3539,7 +4080,40 @@ class WebSocketServer:
     async def _process_message(self, websocket, data: dict):
         msg_type = data.get("type")
 
-        if msg_type == "get_protocol_catalog":
+        if msg_type == "get_voice_status":
+            await self._emit_voice_status(websocket)
+        elif msg_type == "set_voice_preferences":
+            try:
+                await self._set_voice_preferences(websocket, data)
+            except Exception as exc:
+                self._voice_last_error = str(exc)
+                await self._emit_voice_status(websocket)
+                await self._emit_voice_control_result(
+                    websocket,
+                    action="set_preferences",
+                    success=False,
+                    error=str(exc),
+                )
+        elif msg_type == "arm_dual_voice_capture":
+            try:
+                await self._arm_dual_voice_capture(websocket, data)
+            except Exception as exc:
+                self._voice_last_error = str(exc)
+                await self._emit_voice_status(websocket)
+                await self._emit_voice_control_result(
+                    websocket,
+                    action="arm_capture",
+                    success=False,
+                    error=str(exc),
+                )
+        elif msg_type == "disarm_dual_voice_capture":
+            changed = await self._disarm_dual_voice_capture(
+                reason="client_request",
+                owner=websocket,
+            )
+            if not changed:
+                await self._emit_voice_status(websocket)
+        elif msg_type == "get_protocol_catalog":
             await websocket.send(json.dumps({
                 "type": "protocol_catalog",
                 "data": self._protocol_catalog(),
@@ -3559,6 +4133,11 @@ class WebSocketServer:
             try:
                 await self._create_dual_session(websocket, data)
             except Exception as exc:
+                self._queue_voice(
+                    "受试者任务登记失败，请查看界面。",
+                    key="dual_create_failed",
+                    priority=0,
+                )
                 await websocket.send(json.dumps({
                     "type": "dual_session_state", "data": {"success": False, "error": str(exc)},
                 }, ensure_ascii=False))
@@ -3566,6 +4145,11 @@ class WebSocketServer:
             try:
                 await self._open_dual_session(websocket, data)
             except Exception as exc:
+                self._queue_voice(
+                    "受试者任务恢复失败，请查看界面。",
+                    key="dual_open_failed",
+                    priority=0,
+                )
                 await websocket.send(json.dumps({
                     "type": "dual_session_state", "data": {"success": False, "error": str(exc)},
                 }, ensure_ascii=False))
@@ -3573,13 +4157,33 @@ class WebSocketServer:
             try:
                 await self._capture_dual_group(websocket, data)
             except Exception as exc:
+                try:
+                    failed_yaw = int(data.get("yaw_deg"))
+                    failed_label = self._dual_angle_voice_label(failed_yaw)
+                except (TypeError, ValueError):
+                    failed_label = "当前角度"
+                self._queue_voice(
+                    f"{failed_label}采集失败，请查看界面后重试。",
+                    key=f"dual_capture_failed:{data.get('subject_id')}:{data.get('yaw_deg')}",
+                    priority=0,
+                )
                 await websocket.send(json.dumps({
-                    "type": "dual_capture_result", "data": {"success": False, "error": str(exc)},
+                    "type": "dual_capture_result", "data": {
+                        "success": False,
+                        "trigger": "ui",
+                        "yaw_deg": data.get("yaw_deg"),
+                        "error": str(exc),
+                    },
                 }, ensure_ascii=False))
         elif msg_type == "save_dual_anthropometry":
             try:
                 await self._save_dual_anthropometry(websocket, data)
             except Exception as exc:
+                self._queue_voice(
+                    "人体测量保存失败，请检查必填项。",
+                    key="dual_measurements_failed",
+                    priority=0,
+                )
                 await websocket.send(json.dumps({
                     "type": "dual_anthropometry_result", "data": {"success": False, "error": str(exc)},
                 }, ensure_ascii=False))
@@ -3587,6 +4191,11 @@ class WebSocketServer:
             try:
                 await self._complete_dual_session(websocket, data)
             except Exception as exc:
+                self._queue_voice(
+                    "任务完成条件尚未满足，请查看界面。",
+                    key="dual_completion_failed",
+                    priority=0,
+                )
                 await websocket.send(json.dumps({
                     "type": "dual_completion_result", "data": {"success": False, "error": str(exc)},
                 }, ensure_ascii=False))
@@ -3854,6 +4463,9 @@ class WebSocketServer:
                 asyncio.to_thread(gemini.get_frames, 1000),
                 asyncio.to_thread(d435i.get_frames, 1000),
             )
+        if gemini_frame is None or d435i_frame is None:
+            await self._disarm_dual_voice_capture(reason="dual_frame_unavailable")
+            return False
 
         async def encode(frame):
             if frame is None:
@@ -3917,6 +4529,9 @@ class WebSocketServer:
                         consecutive_errors = 0
                         await asyncio.sleep(1.0 / max(1, self.settings.gui.preview_fps))
                         continue
+                    await self._disarm_dual_voice_capture(
+                        reason="dual_preview_not_ready"
+                    )
                     async with self.camera_lock:
                         frames = await asyncio.to_thread(
                             self.active_camera_adapter.get_frames,
@@ -4133,6 +4748,17 @@ class WebSocketServer:
             except Exception:
                 pass
             self.voice_recognizer = None
+        voice_arm_task = getattr(self, "_dual_voice_arm_task", None)
+        if voice_arm_task and not voice_arm_task.done():
+            voice_arm_task.cancel()
+        self._dual_voice_arm_task = None
+        self._dual_voice_arm = None
+        if self.voice_synthesizer:
+            try:
+                self.voice_synthesizer.release()
+            except Exception:
+                pass
+            self.voice_synthesizer = None
         try:
             self.depth_analyzer.close()
         except Exception:

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { backendUrls, reconnectDelayMs } from './collectorTransport.mjs';
 import {
   activeDualSessionRecord,
+  dualCaptureWriteBlocked,
   dualIntegrityMessage,
   dualWriteBlocked,
   reduceDualSessionEvent
@@ -25,10 +26,11 @@ test('双机恢复记录保持原输出目录', () => {
   }), { subject_id: 'S0008', output_path: 'D:\\data' });
 });
 
-test('完整性错误和完成状态都会阻止写入', () => {
+test('仅完整性异常会阻止双机写入；完成任务仍可修订人体测量', () => {
   assert.equal(dualWriteBlocked({ reconciliation_required: true }), true);
   assert.equal(dualWriteBlocked({ integrity: { status: 'ERROR' } }), true);
-  assert.equal(dualWriteBlocked({ status: 'COMPLETE' }), true);
+  assert.equal(dualWriteBlocked({ status: 'COMPLETE' }), false);
+  assert.equal(dualCaptureWriteBlocked({ status: 'COMPLETE' }), true);
   assert.equal(dualWriteBlocked({ status: 'ACTIVE', integrity: { status: 'OK' } }), false);
   assert.match(
     dualIntegrityMessage({ recovery_report: { recovered_attempts: 1, promoted_staging: 1 } }),

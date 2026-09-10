@@ -1,4 +1,5 @@
 from enum import Enum
+import re
 from typing import Optional, Dict, Callable
 from loguru import logger
 
@@ -17,37 +18,22 @@ class VoiceCommandParser:
     def __init__(self):
         self.command_map: Dict[str, VoiceCommand] = {
             "开始采集": VoiceCommand.START_CAPTURE,
-            "开始": VoiceCommand.START_CAPTURE,
-            "采集": VoiceCommand.START_CAPTURE,
-            "拍照": VoiceCommand.START_CAPTURE,
-            "停止采集": VoiceCommand.STOP_CAPTURE,
-            "停止": VoiceCommand.STOP_CAPTURE,
-            "下一个": VoiceCommand.NEXT_POSE,
-            "下一张": VoiceCommand.NEXT_POSE,
-            "下一个姿势": VoiceCommand.NEXT_POSE,
-            "重复": VoiceCommand.REPEAT,
-            "再来一次": VoiceCommand.REPEAT,
-            "重拍": VoiceCommand.REPEAT,
-            "取消": VoiceCommand.CANCEL,
-            "算了": VoiceCommand.CANCEL,
-            "完成": VoiceCommand.FINISH,
-            "结束": VoiceCommand.FINISH,
-            "好了": VoiceCommand.FINISH,
-            "完毕": VoiceCommand.FINISH,
+            "重复提示": VoiceCommand.REPEAT,
+            "取消采集": VoiceCommand.CANCEL,
         }
 
         self.callbacks: Dict[VoiceCommand, Callable] = {}
 
     def parse(self, text: str) -> VoiceCommand:
         try:
-            text = text.strip().lower()
+            text = re.sub(r"[\s，。！？、,.!?；;：:]+", "", str(text).strip().lower())
             if not text:
                 return VoiceCommand.UNKNOWN
 
-            for keyword, command in self.command_map.items():
-                if keyword in text:
-                    logger.info(f"Voice command recognized: {text} -> {command.value}")
-                    return command
+            command = self.command_map.get(text)
+            if command is not None:
+                logger.info(f"Voice command recognized: {text} -> {command.value}")
+                return command
 
             logger.debug(f"Unknown voice command: {text}")
             return VoiceCommand.UNKNOWN
@@ -70,11 +56,19 @@ class VoiceCommandParser:
     def get_command_description(self, command: VoiceCommand) -> str:
         descriptions = {
             VoiceCommand.START_CAPTURE: "开始采集",
-            VoiceCommand.STOP_CAPTURE: "停止采集",
-            VoiceCommand.NEXT_POSE: "下一个姿势",
-            VoiceCommand.REPEAT: "重新采集",
-            VoiceCommand.CANCEL: "取消操作",
-            VoiceCommand.FINISH: "完成采集",
+            VoiceCommand.REPEAT: "重复提示",
+            VoiceCommand.CANCEL: "取消采集",
             VoiceCommand.UNKNOWN: "未知指令"
         }
         return descriptions.get(command, "未知指令")
+
+    def accepted_phrases(self) -> tuple[str, ...]:
+        return tuple(self.command_map)
+
+    def recognition_phrases(self) -> tuple[str, ...]:
+        """Return model-vocabulary tokenization for Vosk's constrained grammar."""
+        return (
+            "开始 采集",
+            "重复 提示",
+            "取消 采集",
+        )

@@ -30,6 +30,10 @@ export const clearActiveDualSession = (storage = window.localStorage) => {
 export const dualWriteBlocked = (state) => Boolean(
   state?.reconciliation_required
   || String(state?.integrity?.status || '').toUpperCase() === 'ERROR'
+);
+
+export const dualCaptureWriteBlocked = (state) => (
+  dualWriteBlocked(state)
   || String(state?.status || '').toUpperCase() === 'COMPLETE'
 );
 

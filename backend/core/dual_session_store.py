@@ -292,7 +292,10 @@ class DualSessionStore:
         subject_id = self._validate_subject_id(subject_id)
         with self._lock_for(subject_id):
             state = self.get_session(subject_id)
-            self._assert_writable(state)
+            # A completed task deliberately remains closed to new image groups,
+            # but measurement values are corrigenda and must remain editable.
+            # Integrity/reconciliation failures still block every mutation.
+            self._assert_measurements_writable(state)
             return self._save_anthropometry_locked(
                 subject_id, records, definitions, state
             )
@@ -384,14 +387,25 @@ class DualSessionStore:
             )
 
         saved_at = self._now()
+        previous = dict(state.get("anthropometry") or {})
+        revision = int(previous.get("revision") or 0) + 1
+        history = list(previous.get("history") or [])
+        if previous.get("records"):
+            history.append({
+                "revision": int(previous.get("revision") or max(1, revision - 1)),
+                "saved_at": previous.get("saved_at"),
+                "records": previous.get("records"),
+            })
         state["anthropometry"] = {
             "status": "COMPLETE",
             "complete": True,
             "saved_at": saved_at,
             "policy_version": _ANTHROPOMETRY_POLICY_VERSION,
+            "review_required": review_required,
+            "revision": revision,
             "records": normalized,
             "missing_required": [],
-            "review_required": review_required,
+            "history": history,
         }
         self._refresh_completion(state)
         self._atomic_json(self._state_path(subject_id), state)
@@ -454,6 +468,10 @@ class DualSessionStore:
     def _assert_writable(state: Mapping[str, Any]) -> None:
         if str(state.get("status") or "").upper() == "COMPLETE":
             raise DualSessionStoreError("该受试者任务已完成并锁定，不能继续写入")
+        DualSessionStore._assert_measurements_writable(state)
+
+    @staticmethod
+    def _assert_measurements_writable(state: Mapping[str, Any]) -> None:
         if state.get("reconciliation_required") is True:
             raise DualSessionStoreError("该任务存在待恢复或完整性异常，修复前禁止继续写入")
         integrity = state.get("integrity") or {}

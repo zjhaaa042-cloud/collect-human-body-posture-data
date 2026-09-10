@@ -40,6 +40,11 @@ function ControlPanel({
     else setActiveTab('completion');
   };
 
+  const changeTab = (key) => {
+    if (key !== 'capture') actions.disarmDualVoiceCapture?.();
+    setActiveTab(key);
+  };
+
   const tabs = [
     {
       key: 'subject',
@@ -60,7 +65,18 @@ function ControlPanel({
     {
       key: 'capture',
       label: '2 双机八角度',
-      children: <DualCaptureWorkspace cameraStatus={cameraStatus} state={state} busyAction={busyAction} onCapture={actions.captureDualGroup} onGoMeasurements={() => setActiveTab('measurements')} />
+      children: (
+        <DualCaptureWorkspace
+          cameraStatus={cameraStatus}
+          state={state}
+          busyAction={busyAction}
+          voiceStatus={actions.voiceStatus}
+          onCapture={actions.captureDualGroup}
+          onArmVoiceCapture={actions.armDualVoiceCapture}
+          onDisarmVoiceCapture={actions.disarmDualVoiceCapture}
+          onGoMeasurements={() => setActiveTab('measurements')}
+        />
+      )
     },
     {
       key: 'measurements',
@@ -70,7 +86,7 @@ function ControlPanel({
     {
       key: 'completion',
       label: '4 完成',
-      children: <CompletionPanel state={state} report={actions.dualCompletionReport} busyAction={busyAction} onComplete={actions.completeDualSession} />
+      children: <CompletionPanel state={state} report={actions.dualCompletionReport} busyAction={busyAction} onComplete={actions.completeDualSession} onEditMeasurements={() => setActiveTab('measurements')} />
     }
   ];
 
@@ -115,7 +131,7 @@ function ControlPanel({
             description={integrityMessage}
           />
         )}
-        <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} destroyOnHidden={false} className="protocol-tabs" />
+        <Tabs activeKey={activeTab} onChange={changeTab} items={tabs} destroyOnHidden={false} className="protocol-tabs" />
       </Card>
     </div>
   );

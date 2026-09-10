@@ -9,12 +9,15 @@
     "params_file": "config/camera_params.json"
   },
   "voice": {
-    "enabled": false,
+    "output_enabled": true,
+    "recognition_enabled": true,
     "model_path": "models/vosk-model-small-cn-0.22",
     "language": "zh",
     "tts_voice": "zh-CN-XiaoxiaoNeural",
     "tts_rate": "+0%",
-    "tts_volume": "+0%"
+    "tts_volume": "+0%",
+    "tts_online_timeout_seconds": 3,
+    "capture_arm_timeout_seconds": 30
   },
   "storage": {
     "output_dir": "data",
