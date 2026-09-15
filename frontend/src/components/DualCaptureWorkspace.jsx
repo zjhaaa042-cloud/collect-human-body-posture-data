@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { SyncOutlined } from '@ant-design/icons';
 import { Alert, Button, Checkbox, Empty, InputNumber, Progress, Tag, Typography } from 'antd';
-import { dualCaptureWriteBlocked, dualIntegrityMessage } from '../collector/dualSessionState.mjs';
+import { dualCaptureWriteBlocked } from '../collector/dualSessionState.mjs';
 
 const { Text, Title } = Typography;
 
@@ -24,7 +24,6 @@ export default function DualCaptureWorkspace({
   const expected = state?.progress?.expected || 8;
   const dualReady = cameraStatus?.dual_ready === true;
   const writeBlocked = dualCaptureWriteBlocked(state);
-  const integrityMessage = dualIntegrityMessage(state);
   const percent = Math.round(captured / expected * 100);
   const voiceCommandsReady = Boolean(
     voiceStatus?.recognition_enabled
@@ -79,15 +78,6 @@ export default function DualCaptureWorkspace({
         message="每个角度由两台相机近同步采集，各保存 5 帧"
         description="Gemini 是全身主视角；D435i 是辅助 RGB-D 视角，2.5 m 处允许因硬件 FOV 产生的画幅裁切，不作为全身入框门禁。每帧保存 RGB、原始/对齐深度、两类伪彩深度和带颜色 PLY 点云。"
       />
-      {integrityMessage && (
-        <Alert
-          type={state.reconciliation_required ? 'error' : 'info'}
-          showIcon
-          role={state.reconciliation_required ? 'alert' : 'status'}
-          message={state.reconciliation_required ? '任务已因完整性问题锁定' : '任务恢复信息'}
-          description={integrityMessage}
-        />
-      )}
       {nextYaw == null ? (
         <>
           <Alert type="success" showIcon message="八个角度均已采集完成" description="登记信息和八角度数据已经统一保存在当前受试者目录中。" />

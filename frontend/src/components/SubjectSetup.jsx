@@ -18,12 +18,14 @@ export default function SubjectSetup({
   onChooseOutputDirectory,
   onCreate,
   onOpen,
+  onOpenLatest,
   onContinue,
   onStartNew
 }) {
   const [form] = Form.useForm();
   const [subjectInput, setSubjectInput] = useState('S0001');
   const subjectNumber = parseSubjectNumber(subjectInput);
+  const busy = Boolean(busyAction);
 
   useEffect(() => {
     if (selectedOutputDirectory) form.setFieldValue('output_path', selectedOutputDirectory);
@@ -52,8 +54,9 @@ export default function SubjectSetup({
   const payload = (values) => ({ ...values, subject_id: formatSubjectId(subjectInput) });
   const openExisting = async () => onOpen(payload(await form.validateFields(['output_path'])));
   const startNew = () => {
+    if (busy) return;
     const next = formatSubjectId(subjectNumber + 1);
-    onStartNew?.();
+    if (onStartNew?.() === false) return;
     setSubjectInput(next);
     form.resetFields();
     if (selectedOutputDirectory) form.setFieldValue('output_path', selectedOutputDirectory);
@@ -74,7 +77,8 @@ export default function SubjectSetup({
           <Button type="primary" icon={<LoginOutlined />} onClick={onContinue}>
             {captured < 8 ? '继续双机八角度采集' : '继续人体测量与完成'}
           </Button>
-          <Button onClick={startNew}>登记下一位受试者</Button>
+          <Button disabled={busy} onClick={() => onOpenLatest?.(activeState.output_directory || selectedOutputDirectory)}>读取最新受试者</Button>
+          <Button disabled={busy || subjectNumber >= 9999} onClick={startNew}>登记下一位受试者</Button>
         </Space>
       </section>
     );
@@ -84,7 +88,7 @@ export default function SubjectSetup({
     <section aria-labelledby="subject-heading">
       <Title level={3} id="subject-heading">1. 受试者登记</Title>
       <Text type="secondary">登记一次后，受试者编号、输出文件夹、服装备注和默认距离会直接用于第 2 步双机八角度采集。</Text>
-      <Form form={form} layout="vertical" onFinish={(values) => onCreate(payload(values))} requiredMark="optional" className="subject-form" initialValues={{ target_distance_mm: 2500 }}>
+      <Form form={form} disabled={busy} layout="vertical" onFinish={(values) => onCreate(payload(values))} requiredMark="optional" className="subject-form" initialValues={{ target_distance_mm: 2500, output_path: selectedOutputDirectory }}>
         <Form.Item label="匿名受试者编号" required>
           <Space.Compact block className="subject-number-picker">
             <Button aria-label="选择上一位受试者" disabled={subjectNumber <= 1} onClick={() => changeSubjectNumber(-1)}>上一位</Button>
@@ -93,9 +97,14 @@ export default function SubjectSetup({
           </Space.Compact>
           <Text type="secondary" className="subject-number-hint">可直接输入 <code>S0008</code> 或 <code>8</code>，也可点击按钮切换。</Text>
         </Form.Item>
-        <Form.Item name="output_path" label="数据输出文件夹" rules={[{ required: true, message: '请选择或输入任意可写 Windows 文件夹' }]}>
+        <Form.Item label="数据输出文件夹" required>
           <Space.Compact block>
-            <Input aria-label="数据输出文件夹" prefix={<FolderOpenOutlined />} placeholder="例如 D:\\人体数据\\本次采集" autoComplete="off" />
+            <Form.Item name="output_path" noStyle rules={[{ required: true, message: '请选择或输入任意可写 Windows 文件夹' }]}>
+              <Input aria-label="数据输出文件夹" prefix={<FolderOpenOutlined />} placeholder="例如 D:\\人体数据\\本次采集" autoComplete="off" onBlur={(event) => {
+                const path = event.target.value.trim();
+                if (path && path !== selectedOutputDirectory) onChooseOutputDirectory?.(path);
+              }} />
+            </Form.Item>
             <Button loading={busyAction === 'select-output-directory'} onClick={chooseOutputDirectory}>选择</Button>
           </Space.Compact>
         </Form.Item>
@@ -105,6 +114,10 @@ export default function SubjectSetup({
         <Space wrap>
           <Button type="primary" htmlType="submit" icon={<UserAddOutlined />} loading={busyAction === 'create-dual-session'}>登记并建立任务</Button>
           <Button icon={<LoginOutlined />} loading={busyAction === 'open-dual-session'} onClick={openExisting}>继续已有任务</Button>
+          <Button loading={busyAction === 'open-latest-dual-session'} onClick={async () => {
+            const values = await form.validateFields(['output_path']);
+            onOpenLatest?.(values.output_path);
+          }}>读取最新受试者</Button>
         </Space>
       </Form>
     </section>

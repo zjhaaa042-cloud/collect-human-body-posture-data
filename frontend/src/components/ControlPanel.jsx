@@ -29,7 +29,8 @@ function ControlPanel({
   useEffect(() => {
     if (state?.subject_id && previousSubject.current !== state.subject_id) {
       previousSubject.current = state.subject_id;
-      setActiveTab(state.progress?.captured >= 8 ? 'measurements' : 'capture');
+      setActiveTab(state.status === 'COMPLETE' || (state.progress?.captured >= 8 && state.anthropometry?.complete)
+        ? 'completion' : state.progress?.captured >= 8 ? 'measurements' : 'capture');
     }
     if (!state?.subject_id) previousSubject.current = '';
   }, [state?.subject_id, state?.progress?.captured]);
@@ -57,6 +58,7 @@ function ControlPanel({
           onChooseOutputDirectory={actions.selectOutputDirectory}
           onCreate={actions.createDualSession}
           onOpen={actions.openDualSession}
+          onOpenLatest={actions.openLatestDualSession}
           onContinue={continueCurrent}
           onStartNew={actions.startNextDualSubject}
         />
@@ -124,10 +126,10 @@ function ControlPanel({
         {integrityMessage && (
           <Alert
             className="protocol-integrity-alert"
-            type={state?.reconciliation_required ? 'error' : 'info'}
+            type={state?.reconciliation_required ? 'error' : state?.capture_error ? 'warning' : 'info'}
             showIcon
             role={state?.reconciliation_required ? 'alert' : 'status'}
-            message={state?.reconciliation_required ? '当前任务已锁定' : '任务恢复完成'}
+            message={state?.reconciliation_required ? '当前任务已锁定' : state?.capture_error ? '采集写入异常，请核对当前进度' : '任务恢复完成'}
             description={integrityMessage}
           />
         )}

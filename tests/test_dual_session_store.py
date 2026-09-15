@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from dataclasses import asdict
 from pathlib import Path
 
@@ -32,6 +33,51 @@ def frame(index):
 
 
 class DualSessionStoreTests(unittest.TestCase):
+    def test_duplicate_angle_does_not_create_another_staging_attempt(self):
+        with tempfile.TemporaryDirectory() as directory, DualSessionStore(directory) as store:
+            store.create_session("S0093")
+            frames = [frame(i) for i in range(5)]
+            store.commit_group("S0093", 0, frames, frames, audit={}, metadata={})
+            with self.assertRaisesRegex(DualSessionStoreError, "禁止重复"):
+                store.commit_group("S0093", 0, frames, frames, audit={}, metadata={})
+            self.assertEqual(list((store._subject_dir("S0093") / ".staging").iterdir()), [])
+            self.assertEqual(len(store.get_session("S0093")["angles"]["V000"]["attempts"]), 1)
+
+    def test_failed_promotion_preserves_complete_staging_and_recovers_once(self):
+        with tempfile.TemporaryDirectory() as directory, DualSessionStore(directory) as store:
+            store.create_session("S0091")
+            with patch("backend.core.dual_session_store.replace_with_retry", side_effect=PermissionError("locked")):
+                with self.assertRaisesRegex(DualSessionStoreError, "staging 已保留"):
+                    store.commit_group("S0091", 0, [frame(i) for i in range(5)],
+                                       [frame(i) for i in range(5)], audit={}, metadata={})
+            staging = list((store._subject_dir("S0091") / ".staging").iterdir())
+            self.assertEqual(len(staging), 1)
+            self.assertTrue((staging[0] / "commit.json").is_file())
+            recovered = store.get_session("S0091")
+            self.assertFalse(recovered["reconciliation_required"])
+            self.assertEqual(recovered["recovery_report"]["promoted_staging"], 1)
+            self.assertEqual(len(store.get_session("S0091")["angles"]["V000"]["attempts"]), 1)
+
+    def test_failed_ledger_write_preserves_final_data_and_recovers_once(self):
+        with tempfile.TemporaryDirectory() as directory, DualSessionStore(directory) as store:
+            store.create_session("S0092")
+            original = store._atomic_json
+
+            def fail_ledger(path, value):
+                if path == store._state_path("S0092"):
+                    raise PermissionError("ledger locked")
+                return original(path, value)
+
+            with patch.object(store, "_atomic_json", side_effect=fail_ledger):
+                with self.assertRaisesRegex(DualSessionStoreError, "数据已完整落盘"):
+                    store.commit_group("S0092", 0, [frame(i) for i in range(5)],
+                                       [frame(i) for i in range(5)], audit={}, metadata={})
+            recovered = store.get_session("S0092")
+            self.assertFalse(recovered["reconciliation_required"])
+            self.assertEqual(recovered["recovery_report"]["recovered_attempts"], 1)
+            self.assertEqual(recovered["recovery_report"]["promoted_staging"], 0)
+            self.assertEqual(len(store.get_session("S0092")["angles"]["V000"]["attempts"]), 1)
+
     def test_creates_and_commits_an_eight_angle_group(self):
         with tempfile.TemporaryDirectory() as directory:
             store = DualSessionStore(Path(directory))

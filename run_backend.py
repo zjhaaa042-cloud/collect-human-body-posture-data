@@ -7,6 +7,20 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+def configure_file_logging(settings):
+    from loguru import logger
+
+    if not settings.log_file:
+        return None
+    try:
+        return logger.add(
+            settings.log_file, level=settings.log_level, encoding="utf-8",
+            rotation="10 MB", retention=5, diagnose=False,
+        )
+    except (OSError, ValueError) as exc:
+        logger.warning("无法启用文件日志 {}：{}", settings.log_file, exc)
+        return None
+
 def main():
     try:
         print("=" * 60)
@@ -25,6 +39,7 @@ def main():
         else:
             settings = get_settings()
             print("  使用默认配置 (config.json 不存在)")
+        configure_file_logging(settings)
         print(f"  模型路径: {settings.voice.model_path}")
         print(f"  WebSocket: {settings.websocket_host}:{settings.websocket_port}")
         print()

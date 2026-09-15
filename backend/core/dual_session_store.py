@@ -766,6 +766,8 @@ class DualSessionStore:
             state = self._read_state(subject_id)
             self._assert_writable(state)
             group = state["angles"][group_id]
+            if group.get("status") == "CAPTURED" or group.get("attempts"):
+                raise DualSessionStoreError("该角度已采集，禁止重复写入")
             subject_dir = self._subject_dir(subject_id)
             attempt_number = len(group["attempts"]) + 1
             attempt_id = (

@@ -6,7 +6,7 @@ from unittest import mock
 
 import numpy as np
 
-from backend.application.dual_workflow import DualWorkflowService
+from backend.application.dual_workflow import DualCapturePersistenceError, DualWorkflowService
 from backend.core.camera_adapters import (
     CameraExtrinsicsData,
     CameraIntrinsicsData,
@@ -64,6 +64,177 @@ class FakeCamera:
 
 
 class DualWorkflowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_capture_rejects_switch_and_returns_original_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            camera_lock = asyncio.Lock()
+            service = DualWorkflowService(lambda: (FakeCamera("C336L", camera_lock), FakeCamera("CD435I", camera_lock)))
+            service.create_session(subject_id="S0001", output_path=directory)
+            entered, release = asyncio.Event(), asyncio.Event()
+
+            async def announce():
+                entered.set()
+                await release.wait()
+
+            task = asyncio.create_task(service.capture_group(
+                subject_id="S0001", yaw_deg=0, distance_mm=2500, ready=True,
+                capture_lock=asyncio.Lock(), camera_lock=camera_lock, set_capturing=lambda _: None,
+                announce=announce, settle_seconds=0, interval_ms=0,
+            ))
+            await entered.wait()
+            try:
+                for operation in (
+                    lambda: service.create_session(subject_id="S0002", output_path=directory),
+                    lambda: service.open_session(subject_id="S0001", output_path=directory),
+                    lambda: service.open_latest_session(output_path=directory),
+                ):
+                    with self.assertRaisesRegex(ValueError, "正在采集"):
+                        await asyncio.to_thread(operation)
+            finally:
+                release.set()
+                result = await task
+            self.assertEqual(result["state"]["subject_id"], "S0001")
+            self.assertEqual(result["state"]["progress"]["captured"], 1)
+            self.assertFalse((service.store.root / "subjects" / "S0002").exists())
+            service.create_session(subject_id="S0002", output_path=directory)
+            service.close()
+
+    async def test_failed_open_and_create_preserve_original_store_and_subject(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            service = DualWorkflowService(lambda: (None, None))
+            other = DualWorkflowService(lambda: (None, None))
+            service.create_session(subject_id="S0001", output_path=first)
+            other.create_session(subject_id="S0002", output_path=second)
+            other.close()
+            original = service.store
+            for operation in (
+                lambda: service.open_session(subject_id="S0999", output_path=second),
+                lambda: service.create_session(subject_id="S0002", output_path=second),
+            ):
+                with self.assertRaises(Exception):
+                    operation()
+                self.assertIs(service.store, original)
+                self.assertEqual(service.public_state()["subject_id"], "S0001")
+                self.assertEqual(service.public_state()["output_directory"], first)
+            service.close()
+
+    async def test_latest_uses_highest_id_restores_progress_and_preserves_on_error(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as empty:
+            camera_lock = asyncio.Lock()
+            service = DualWorkflowService(lambda: (FakeCamera("C336L", camera_lock), FakeCamera("CD435I", camera_lock)))
+            service.create_session(subject_id="S0026", output_path=directory)
+            await service.capture_group(
+                subject_id="S0026", yaw_deg=0, distance_mm=2500, ready=True,
+                capture_lock=asyncio.Lock(), camera_lock=camera_lock, set_capturing=lambda _: None,
+                settle_seconds=0, interval_ms=0,
+            )
+            service.create_session(subject_id="S0002", output_path=directory)
+            result = service.open_latest_session(output_path=directory)
+            self.assertTrue(result["found"])
+            self.assertEqual(result["state"]["subject_id"], "S0026")
+            self.assertEqual(result["state"]["progress"]["captured"], 1)
+            self.assertEqual(result["state"]["next_yaw_deg"], 45)
+            original = service.store
+            self.assertFalse(service.open_latest_session(output_path=empty)["found"])
+            self.assertFalse((Path(empty) / "body_posture_dual_v2").exists())
+            (service.store.root / "subjects" / "S0099").mkdir()
+            with self.assertRaisesRegex(Exception, "未找到"):
+                service.open_latest_session(output_path=directory)
+            self.assertIs(service.store, original)
+            self.assertEqual(service.active_subject_id, "S0026")
+            service.close()
+
+    async def test_ninth_capture_is_rejected_before_camera_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            camera_lock = asyncio.Lock()
+            gemini, d435i = FakeCamera("C336L", camera_lock), FakeCamera("CD435I", camera_lock)
+            service = DualWorkflowService(lambda: (gemini, d435i))
+            service.create_session(subject_id="S0001", output_path=directory)
+            options = dict(subject_id="S0001", distance_mm=2500, ready=True,
+                           capture_lock=asyncio.Lock(), camera_lock=camera_lock,
+                           set_capturing=lambda _: None, settle_seconds=0, interval_ms=0)
+            for yaw in range(0, 360, 45):
+                await service.capture_group(yaw_deg=yaw, **options)
+            calls = gemini.calls + d435i.calls
+            with self.assertRaisesRegex(ValueError, "全部采集"):
+                await service.capture_group(yaw_deg=0, **options)
+            self.assertEqual(gemini.calls + d435i.calls, calls)
+            self.assertEqual(len(service.store.get_session("S0001")["angles"]["V000"]["attempts"]), 1)
+            service.close()
+
+    async def test_success_uses_committed_ledger_without_post_commit_disk_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            camera_lock = asyncio.Lock()
+            service = DualWorkflowService(lambda: (
+                FakeCamera("C336L", camera_lock), FakeCamera("CD435I", camera_lock)
+            ))
+            service.create_session(subject_id="S0001", output_path=directory)
+            initial = service.public_state()
+            try:
+                with mock.patch.object(service, "public_state", side_effect=[initial, OSError("read locked")]) as read:
+                    result = await service.capture_group(
+                        subject_id="S0001", yaw_deg=0, distance_mm=2500, ready=True,
+                        capture_lock=asyncio.Lock(), camera_lock=camera_lock,
+                        set_capturing=lambda value: None, settle_seconds=0, interval_ms=0,
+                    )
+                self.assertTrue(result["success"])
+                self.assertEqual(result["state"]["progress"]["captured"], 1)
+                self.assertEqual(result["state"]["next_yaw_deg"], 45)
+                read.assert_called_once()
+            finally:
+                service.close()
+
+    async def test_write_failure_returns_recovered_or_locked_state(self):
+        for failure in ("ledger", "partial", "audit"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                camera_lock = asyncio.Lock()
+                capture_lock = asyncio.Lock()
+                service = DualWorkflowService(lambda: (
+                    FakeCamera("C336L", camera_lock), FakeCamera("CD435I", camera_lock)
+                ))
+                service.create_session(subject_id="S0001", output_path=directory)
+                store = service.store
+                original = store._atomic_json
+                ledger_failed = False
+
+                def fail_ledger_once(path, value):
+                    nonlocal ledger_failed
+                    if path == store._state_path("S0001") and not ledger_failed:
+                        ledger_failed = True
+                        raise PermissionError("injected ledger lock")
+                    return original(path, value)
+
+                initial_state = service.public_state()
+                if failure == "ledger":
+                    injection = mock.patch.object(store, "_atomic_json", side_effect=fail_ledger_once)
+                else:
+                    injection = mock.patch.object(store, "_write_png", side_effect=OSError("injected disk write failure"))
+                audit = (
+                    mock.patch.object(service, "public_state", side_effect=[initial_state, OSError("audit unavailable")])
+                    if failure == "audit" else mock.patch.object(service, "public_state", wraps=service.public_state)
+                )
+                capturing = []
+                try:
+                    with injection, audit, self.assertRaises(DualCapturePersistenceError) as caught:
+                        await service.capture_group(
+                            subject_id="S0001", yaw_deg=0, distance_mm=2500, ready=True,
+                            capture_lock=capture_lock, camera_lock=camera_lock,
+                            set_capturing=capturing.append, settle_seconds=0, interval_ms=0,
+                        )
+                    state = caught.exception.state
+                    self.assertIn("写入异常", state["capture_error"])
+                    self.assertEqual(state["capture_recovered"], failure == "ledger")
+                    self.assertEqual(state["reconciliation_required"], failure != "ledger")
+                    self.assertEqual(state["progress"]["captured"], 1 if failure == "ledger" else 0)
+                    self.assertEqual(capturing, [True, False])
+                    self.assertFalse(capture_lock.locked())
+                    self.assertFalse(camera_lock.locked())
+                    if failure == "ledger":
+                        self.assertEqual(state["next_yaw_deg"], 45)
+                    else:
+                        self.assertTrue(list((store._subject_dir("S0001") / ".staging").iterdir()))
+                finally:
+                    service.close()
+
     async def test_write_subject_must_match_active_session(self):
         with tempfile.TemporaryDirectory() as directory:
             service = DualWorkflowService(lambda: (None, None))
@@ -83,7 +254,7 @@ class DualWorkflowTests(unittest.IsolatedAsyncioTestCase):
             service.create_session(subject_id="S0001", output_path=directory)
             committed = {
                 "attempt_id": "capture_test",
-                "state": {},
+                "state": service.store.get_session("S0001"),
                 "capture": {},
             }
             with mock.patch.object(
@@ -125,7 +296,7 @@ class DualWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 announcement_started.set()
                 await release_announcement.wait()
 
-            committed = {"attempt_id": "capture_test", "state": {}, "capture": {}}
+            committed = {"attempt_id": "capture_test", "state": service.store.get_session("S0001"), "capture": {}}
             with mock.patch.object(service.store, "commit_group", return_value=committed):
                 task = asyncio.create_task(service.capture_group(
                     subject_id="S0001",
@@ -162,7 +333,7 @@ class DualWorkflowTests(unittest.IsolatedAsyncioTestCase):
             async def fake_sleep(seconds):
                 observed_before_settle.append((seconds, gemini.calls, d435i.calls))
 
-            committed = {"attempt_id": "capture_test", "state": {}, "capture": {}}
+            committed = {"attempt_id": "capture_test", "state": service.store.get_session("S0001"), "capture": {}}
             with (
                 mock.patch.object(service.store, "commit_group", return_value=committed),
                 mock.patch(

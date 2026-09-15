@@ -31,7 +31,7 @@ from ..core.protocol_store import (
     ProtocolStore,
     ProtocolStoreError,
 )
-from ..application.dual_workflow import DualWorkflowService
+from ..application.dual_workflow import DualCapturePersistenceError, DualWorkflowService
 from ..protocol import (
     Condition,
     full31_no_lux,
@@ -869,7 +869,7 @@ class WebSocketServer:
             })
         except Exception as exc:
             logger.warning(f"Voice-triggered dual capture failed: {exc}")
-            message = f"{self._dual_angle_voice_label(yaw_deg)}采集失败，请查看界面后重试。"
+            message = f"{self._dual_angle_voice_label(yaw_deg)}采集发生异常，请核对界面的保存状态和当前进度。"
             await self._broadcast({
                 "type": "dual_capture_result",
                 "data": {
@@ -3214,6 +3214,24 @@ class WebSocketServer:
         )
         return state
 
+    async def _open_latest_dual_session(self, websocket, data: dict):
+        result = await asyncio.to_thread(
+            self.dual_workflow.open_latest_session,
+            output_path=str(data.get("output_path") or "").strip(),
+        )
+        if result["found"]:
+            state = result["state"]
+            self._apply_dual_distance_target(state)
+            await self._disarm_dual_voice_capture(reason="latest_subject_opened")
+            await self._emit_protocol_message(websocket, {
+                "type": "dual_session_state", "data": {**state, "event": "latest_opened"},
+            })
+        else:
+            await self._emit_protocol_message(websocket, {
+                "type": "latest_dual_session_result", "data": {"success": True, **result},
+            })
+        return result
+
     async def _save_dual_anthropometry(self, websocket, data: dict):
         subject_id = str(data.get("subject_id") or "")
         records = data.get("records")
@@ -3297,19 +3315,31 @@ class WebSocketServer:
                 priority=0,
             )
 
-        result = await self.dual_workflow.capture_group(
-            subject_id=subject_id,
-            yaw_deg=yaw_deg,
-            distance_mm=distance_mm,
-            ready=bool(data.get("ready")),
-            capture_lock=self.capture_lock,
-            camera_lock=self.camera_lock,
-            set_capturing=set_capturing,
-            announce=announce,
-            settle_seconds=_DUAL_CAPTURE_SETTLE_SECONDS,
-            frame_count=_PROTOCOL_BURST_FRAMES,
-            interval_ms=_DUAL_BURST_INTERVAL_SEC * 1000.0,
-        )
+        try:
+            result = await self.dual_workflow.capture_group(
+                subject_id=subject_id,
+                yaw_deg=yaw_deg,
+                distance_mm=distance_mm,
+                ready=bool(data.get("ready")),
+                capture_lock=self.capture_lock,
+                camera_lock=self.camera_lock,
+                set_capturing=set_capturing,
+                announce=announce,
+                settle_seconds=_DUAL_CAPTURE_SETTLE_SECONDS,
+                frame_count=_PROTOCOL_BURST_FRAMES,
+                interval_ms=_DUAL_BURST_INTERVAL_SEC * 1000.0,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Dual capture failed: subject={} yaw={} trigger={}",
+                subject_id, yaw_deg, trigger,
+            )
+            if isinstance(exc, DualCapturePersistenceError):
+                await self._emit_protocol_message(websocket, {
+                    "type": "dual_session_state",
+                    "data": {**exc.state, "event": "write_failed"},
+                })
+            raise
         result["trigger"] = trigger
         await self._emit_protocol_message(websocket, {
             "type": "dual_capture_result", "data": result,
@@ -4141,6 +4171,15 @@ class WebSocketServer:
                 await websocket.send(json.dumps({
                     "type": "dual_session_state", "data": {"success": False, "error": str(exc)},
                 }, ensure_ascii=False))
+        elif msg_type == "open_latest_dual_session":
+            try:
+                await self._open_latest_dual_session(websocket, data)
+            except Exception as exc:
+                logger.exception("读取最新双机任务失败")
+                await self._emit_protocol_message(websocket, {
+                    "type": "latest_dual_session_result",
+                    "data": {"success": False, "error": str(exc)},
+                })
         elif msg_type == "open_dual_session":
             try:
                 await self._open_dual_session(websocket, data)
@@ -4163,7 +4202,7 @@ class WebSocketServer:
                 except (TypeError, ValueError):
                     failed_label = "当前角度"
                 self._queue_voice(
-                    f"{failed_label}采集失败，请查看界面后重试。",
+                    f"{failed_label}采集发生异常，请核对界面的保存状态和当前进度。",
                     key=f"dual_capture_failed:{data.get('subject_id')}:{data.get('yaw_deg')}",
                     priority=0,
                 )

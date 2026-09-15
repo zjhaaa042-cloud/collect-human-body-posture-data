@@ -5,6 +5,8 @@ import {
   clearActiveDualSession,
   persistActiveDualSession,
   readActiveDualSession,
+  readOutputDirectory,
+  persistOutputDirectory,
   reduceDualSessionEvent
 } from '../collector/dualSessionState.mjs';
 import {
@@ -37,6 +39,8 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
   const activeSubjectIdRef = useRef('');
   const selectedConditionIdRef = useRef('');
   const activeDualSessionRef = useRef(readActiveDualSession());
+  const outputDirectoryRef = useRef(readOutputDirectory() || activeDualSessionRef.current?.output_path || '');
+  const initialDirectoryReadRef = useRef(false);
   const voicePreferencesRef = useRef(readVoicePreferences(window.localStorage));
   const [connected, setConnected] = useState(false);
   const [previewData, setPreviewData] = useState(null);
@@ -57,7 +61,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
   const [reviewPreviewLoading, setReviewPreviewLoading] = useState(false);
   const [reviewPreviewError, setReviewPreviewError] = useState('');
   const [dualSessionState, setDualSessionState] = useState(null);
-  const [selectedOutputDirectory, setSelectedOutputDirectory] = useState('');
+  const [selectedOutputDirectory, setSelectedOutputDirectory] = useState(outputDirectoryRef.current);
   const [voiceStatus, setVoiceStatus] = useState({
     ...voicePreferencesRef.current,
     output_available: false,
@@ -135,9 +139,13 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
           sendOn(socket, 'get_voice_status');
           sendOn(socket, 'get_protocol_catalog');
           sendOn(socket, 'get_protocol_subjects');
-          if (activeDualSessionRef.current?.subject_id && activeDualSessionRef.current?.output_path) {
+          if (!initialDirectoryReadRef.current && outputDirectoryRef.current) {
+            setBusyAction('open-latest-dual-session');
+            sendOn(socket, 'open_latest_dual_session', { output_path: outputDirectoryRef.current });
+          } else if (activeDualSessionRef.current?.subject_id && activeDualSessionRef.current?.output_path) {
             sendOn(socket, 'open_dual_session', activeDualSessionRef.current);
           }
+          initialDirectoryReadRef.current = true;
           if (activeSubjectIdRef.current) {
             sendOn(socket, 'select_protocol_subject', {
               subject_id: activeSubjectIdRef.current
@@ -234,6 +242,10 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
             message.error(payload.error || '无法打开文件夹选择窗口');
           } else if (payload.path) {
             setSelectedOutputDirectory(payload.path);
+            outputDirectoryRef.current = payload.path;
+            persistOutputDirectory(payload.path);
+            setBusyAction('open-latest-dual-session');
+            sendOn(socket, 'open_latest_dual_session', { output_path: payload.path });
           }
           break;
         case 'protocol_subject_state':
@@ -333,10 +345,20 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
             setDualSessionState((previous) => reduceDualSessionEvent(previous, packet.type, payload));
             const activeRecord = persistActiveDualSession(payload);
             activeDualSessionRef.current = activeRecord;
-            if (activeRecord?.output_path) setSelectedOutputDirectory(activeRecord.output_path);
+            if (activeRecord?.output_path) {
+              setSelectedOutputDirectory(activeRecord.output_path);
+              outputDirectoryRef.current = activeRecord.output_path;
+              persistOutputDirectory(activeRecord.output_path);
+            }
             if (payload.event === 'created') message.success('受试者登记完成，已建立双机八角度任务');
             if (payload.event === 'opened') message.success('已有双机八角度任务已恢复');
+            if (payload.event === 'latest_opened') message.success(`已读取最新受试者 ${payload.subject_id} 的采集进度`);
           }
+          break;
+        case 'latest_dual_session_result':
+          setBusyAction('');
+          if (payload.success === false) message.error(payload.error || '读取最新受试者失败');
+          else if (!payload.found) message.info('此目录暂无受试者任务，可登记新受试者');
           break;
         case 'dual_capture_result':
           setBusyAction('');
@@ -622,21 +644,32 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
   }, 'completion'), [protocolState?.subject_id, send]);
   const createDualSession = useCallback((payload) => send('create_dual_session', payload, 'create-dual-session'), [send]);
   const openDualSession = useCallback((payload) => send('open_dual_session', payload, 'open-dual-session'), [send]);
+  const openLatestDualSession = useCallback((path) => {
+    if (busyAction) return false;
+    const outputPath = String(path || selectedOutputDirectory || '').trim();
+    if (!outputPath) { message.info('请先选择数据输出文件夹'); return false; }
+    return send('open_latest_dual_session', { output_path: outputPath }, 'open-latest-dual-session');
+  }, [busyAction, selectedOutputDirectory, send, message]);
   const selectOutputDirectory = useCallback((selectedPath = '') => {
+    if (busyAction) return false;
     const path = String(selectedPath || '').trim();
     if (path) {
       setSelectedOutputDirectory(path);
-      return true;
+      outputDirectoryRef.current = path;
+      persistOutputDirectory(path);
+      return send('open_latest_dual_session', { output_path: path }, 'open-latest-dual-session');
     }
     return send('select_output_directory', {}, 'select-output-directory');
-  }, [send]);
+  }, [send, busyAction]);
   const startNextDualSubject = useCallback(() => {
+    if (busyAction) return false;
     send('disarm_dual_voice_capture');
     setDualSessionState(null);
     setCompletionReport(null);
     activeDualSessionRef.current = null;
     clearActiveDualSession();
-  }, [send]);
+    return true;
+  }, [send, busyAction]);
   const captureDualGroup = useCallback((yawDeg, distanceMm) => send('capture_dual_group', {
     subject_id: dualSessionState?.subject_id,
     yaw_deg: yawDeg,
@@ -709,6 +742,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     selectedOutputDirectory,
     createDualSession,
     openDualSession,
+    openLatestDualSession,
     selectOutputDirectory,
     startNextDualSubject,
     captureDualGroup,
@@ -726,7 +760,7 @@ export default function useCollectorSocket({ backendHost, message, connectionVer
     disconnectCamera, lastCaptureResult, refreshCamera, refreshProtocol,
     requestReviewPreview, reviewCapture, reviewPreview, reviewPreviewError,
     reviewPreviewLoading, saveAnthropometry, saveDailyEquipmentCheck, selectPreviewCondition, selectSubject,
-    dualSessionState, selectedOutputDirectory, createDualSession, openDualSession, selectOutputDirectory,
+    dualSessionState, selectedOutputDirectory, createDualSession, openDualSession, openLatestDualSession, selectOutputDirectory,
     startNextDualSubject, captureDualGroup, saveDualAnthropometry, completeDualSession,
     voiceStatus, setVoiceOutputEnabled, setVoiceRecognitionEnabled,
     armDualVoiceCapture, disarmDualVoiceCapture

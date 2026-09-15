@@ -80,10 +80,20 @@
 
 .protocol-card > .ant-card-body {
   display: flex;
+  flex-direction: column;
   flex: 1;
+  min-width: 0;
   min-height: 0;
   padding: 0 16px 16px !important;
   overflow: hidden;
+}
+
+.protocol-card > .ant-card-body > .ant-alert {
+  flex: 0 0 auto;
+  max-height: 30%;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  margin-bottom: 12px;
 }
 
 .protocol-card-title,

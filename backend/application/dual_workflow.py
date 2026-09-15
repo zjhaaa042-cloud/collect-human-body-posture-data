@@ -5,12 +5,22 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import inspect
+import re
+import threading
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from ..core.dual_capture import DualCameraCaptureCoordinator
 from ..core.dual_session_store import DualSessionStore
 from ..protocol import validate_subject_id
+
+
+class DualCapturePersistenceError(RuntimeError):
+    """A failed write with the reconciled (or conservatively locked) UI state."""
+
+    def __init__(self, message: str, state: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.state = state
 
 
 class DualWorkflowService:
@@ -20,6 +30,8 @@ class DualWorkflowService:
         self._adapter_provider = adapter_provider
         self.store: DualSessionStore | None = None
         self.active_subject_id = ""
+        self._session_lock = threading.RLock()
+        self._capture_in_progress = False
 
     def close(self) -> None:
         if self.store is not None:
@@ -27,16 +39,28 @@ class DualWorkflowService:
         self.store = None
         self.active_subject_id = ""
 
-    def _select_store(self, output_path: str) -> DualSessionStore:
+    def _assert_idle(self) -> None:
+        if self._capture_in_progress:
+            raise ValueError("正在采集或保存，请等待完成后再切换任务或修改数据")
+
+    def _activate_session(self, output_path: str, subject_id: str, operation) -> dict[str, Any]:
+        # The caller holds _session_lock. Commit identity only after validation.
+        self._assert_idle()
         resolved = Path(output_path).expanduser().resolve()
-        if self.store is not None and self.store.output_directory == resolved:
-            return self.store
-        next_store = DualSessionStore(resolved)
         previous = self.store
+        next_store = previous if previous is not None and previous.output_directory == resolved else DualSessionStore(resolved)
+        try:
+            state = operation(next_store)
+            result = self._public_state_from_session(state)
+        except Exception:
+            if next_store is not previous:
+                next_store.close()
+            raise
         self.store = next_store
-        if previous is not None:
+        self.active_subject_id = subject_id
+        if previous is not None and previous is not next_store:
             previous.close()
-        return next_store
+        return result
 
     def create_session(
         self,
@@ -49,23 +73,38 @@ class DualWorkflowService:
         subject_id = validate_subject_id(subject_id)
         if not str(output_path or "").strip():
             raise ValueError("请选择数据输出文件夹")
-        store = self._select_store(output_path)
-        store.create_session(
-            subject_id,
-            clothing_note=clothing_note,
-            target_distance_mm=target_distance_mm,
-        )
-        self.active_subject_id = subject_id
-        return self.public_state()
+        with self._session_lock:
+            return self._activate_session(output_path, subject_id, lambda store: store.create_session(
+                subject_id, clothing_note=clothing_note, target_distance_mm=target_distance_mm,
+            ))
 
     def open_session(self, *, subject_id: str, output_path: str) -> dict[str, Any]:
         subject_id = validate_subject_id(subject_id)
         if not str(output_path or "").strip():
             raise ValueError("请选择原任务的数据输出文件夹")
-        store = self._select_store(output_path)
-        store.get_session(subject_id)
-        self.active_subject_id = subject_id
-        return self.public_state()
+        with self._session_lock:
+            return self._activate_session(output_path, subject_id, lambda store: store.get_session(subject_id))
+
+    def open_latest_session(self, *, output_path: str) -> dict[str, Any]:
+        if not str(output_path or "").strip():
+            raise ValueError("请选择数据输出文件夹")
+        with self._session_lock:
+            self._assert_idle()
+            root = Path(output_path).expanduser().resolve()
+            if not root.is_dir():
+                raise ValueError("输出文件夹不存在或不可读取")
+            subjects = root / "body_posture_dual_v2" / "subjects"
+            candidates = []
+            if subjects.exists():
+                for entry in subjects.iterdir():
+                    if entry.is_dir() and re.fullmatch(r"S\d{4}", entry.name):
+                        candidates.append(entry.name)
+            if not candidates:
+                return {"found": False, "output_path": str(root)}
+            subject_id = max(candidates, key=lambda value: int(value[1:]))
+            # Do not silently skip a damaged newest task and select old data.
+            state = self.open_session(subject_id=subject_id, output_path=str(root))
+            return {"found": True, "state": state, "output_path": str(root)}
 
     def _active(self, subject_id: str) -> tuple[DualSessionStore, str]:
         requested = validate_subject_id(str(subject_id or "").strip().upper())
@@ -76,9 +115,13 @@ class DualWorkflowService:
         return self.store, requested
 
     def public_state(self) -> dict[str, Any]:
-        if self.store is None or not self.active_subject_id:
-            return {"active": False, "angles": []}
-        state = self.store.get_session(self.active_subject_id)
+        with self._session_lock:
+            if self.store is None or not self.active_subject_id:
+                return {"active": False, "angles": []}
+            state = self.store.get_session(self.active_subject_id)
+            return self._public_state_from_session(state)
+
+    def _public_state_from_session(self, state: Mapping[str, Any]) -> dict[str, Any]:
         angles = sorted(
             state.get("angles", {}).values(), key=lambda item: int(item.get("yaw_deg", 0))
         )
@@ -94,11 +137,11 @@ class DualWorkflowService:
         completed = str(state.get("status") or "").upper() == "COMPLETE"
         return {
             "active": True,
-            "subject_id": self.active_subject_id,
+            "subject_id": state.get("subject_id", ""),
             "status": state.get("status", "ACTIVE"),
             "created_at": state.get("created_at"),
             "completed_at": state.get("completed_at"),
-            "output_directory": state.get("output_directory") or str(self.store.output_directory),
+            "output_directory": state.get("output_directory") or str(Path(state["output_root"]).parent),
             "output_root": state.get("output_root"),
             "clothing_note": state.get("clothing_note", ""),
             "target_distance_mm": state.get("target_distance_mm"),
@@ -135,16 +178,30 @@ class DualWorkflowService:
         records: Sequence[Mapping[str, Any]],
         definitions: Sequence[Mapping[str, Any]],
     ) -> dict[str, Any]:
-        store, subject_id = self._active(subject_id)
-        store.save_anthropometry(subject_id, records, definitions)
-        return self.public_state()
+        with self._session_lock:
+            self._assert_idle()
+            store, subject_id = self._active(subject_id)
+            return self._public_state_from_session(store.save_anthropometry(subject_id, records, definitions))
 
     def complete_session(self, *, subject_id: str) -> dict[str, Any]:
-        store, subject_id = self._active(subject_id)
-        store.complete_session(subject_id)
-        return self.public_state()
+        with self._session_lock:
+            self._assert_idle()
+            store, subject_id = self._active(subject_id)
+            return self._public_state_from_session(store.complete_session(subject_id))
 
     async def capture_group(
+        self, **kwargs,
+    ) -> dict[str, Any]:
+        with self._session_lock:
+            self._assert_idle()
+            self._capture_in_progress = True
+        try:
+            return await self._capture_group(**kwargs)
+        finally:
+            with self._session_lock:
+                self._capture_in_progress = False
+
+    async def _capture_group(
         self,
         *,
         subject_id: str,
@@ -168,6 +225,8 @@ class DualWorkflowService:
         if str(state.get("status") or "").upper() == "COMPLETE":
             raise ValueError("该受试者任务已完成并锁定")
         expected_yaw = state.get("next_yaw_deg")
+        if expected_yaw is None:
+            raise ValueError("八个角度已全部采集，禁止重复采集，请继续人体测量或完成任务")
         if expected_yaw is not None and int(yaw_deg) != int(expected_yaw):
             raise ValueError(f"请按顺序采集，下一角度为 {expected_yaw}°")
         if capture_lock.locked():
@@ -189,22 +248,47 @@ class DualWorkflowService:
                         frame_count=frame_count,
                         interval_ms=interval_ms,
                     )
-                committed = await asyncio.to_thread(
-                    store.commit_group,
-                    subject_id,
-                    int(yaw_deg),
-                    [pair.gemini for pair in burst.pairs],
-                    [pair.d435i for pair in burst.pairs],
-                    audit=burst.audit_payload(),
-                    metadata={
-                        "distance_mm": distance_mm,
-                        "ready_confirmed_at": datetime.now(timezone.utc).isoformat(),
-                        "framing_policy": {
-                            "C336L": "full_body_required",
-                            "CD435I": "auxiliary_fov_limited_non_blocking",
+                try:
+                    committed = await asyncio.to_thread(
+                        store.commit_group,
+                        subject_id,
+                        int(yaw_deg),
+                        [pair.gemini for pair in burst.pairs],
+                        [pair.d435i for pair in burst.pairs],
+                        audit=burst.audit_payload(),
+                        metadata={
+                            "distance_mm": distance_mm,
+                            "ready_confirmed_at": datetime.now(timezone.utc).isoformat(),
+                            "framing_policy": {
+                                "C336L": "full_body_required",
+                                "CD435I": "auxiliary_fov_limited_non_blocking",
+                            },
                         },
-                    },
-                )
+                    )
+                except Exception as exc:
+                    # Reconcile under the capture lock before another capture can
+                    # start. Never hide the original write failure if auditing fails.
+                    detail = f"角度 {int(yaw_deg)}° 写入异常：{exc}"
+                    try:
+                        recovered_state = await asyncio.to_thread(self.public_state)
+                    except Exception as recovery_exc:
+                        recovered_state = {
+                            **state,
+                            "reconciliation_required": True,
+                            "integrity": {"status": "ERROR", "errors": [
+                                f"无法核验写入后的状态：{recovery_exc}；请重新打开任务后再采集。"
+                            ]},
+                        }
+                    recovered_state["capture_error"] = detail
+                    recovered_state["capture_recovered"] = (
+                        not recovered_state.get("reconciliation_required")
+                        and any(
+                            item.get("yaw_deg") == int(yaw_deg)
+                            and item.get("status") == "CAPTURED"
+                            for item in recovered_state.get("angles", [])
+                        )
+                    )
+                    raise DualCapturePersistenceError(detail, recovered_state) from exc
             finally:
                 set_capturing(False)
         return {
@@ -212,5 +296,8 @@ class DualWorkflowService:
             "yaw_deg": int(yaw_deg),
             "attempt_id": committed["attempt_id"],
             "sync_audit": burst.audit_payload(),
-            "state": self.public_state(),
+            # commit_group already durably wrote and returned this ledger. A
+            # redundant disk read here could misreport a successful commit as
+            # a failed capture if a subsequent read encounters a file lock.
+            "state": self._public_state_from_session(committed["state"]),
         }

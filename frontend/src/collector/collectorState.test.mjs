@@ -50,3 +50,13 @@ test('纯 reducer 只接受成功的双机状态', () => {
     previous
   );
 });
+
+test('写入异常持续显示，历史恢复信息不能冒充本次恢复', () => {
+  const state = { capture_error: '角度 45° 写入异常：磁盘写入失败', recovery_report: { recovered_attempts: 1 } };
+  assert.match(dualIntegrityMessage(state), /磁盘写入失败/);
+  assert.doesNotMatch(dualIntegrityMessage(state), /本次角度数据已校验恢复/);
+  assert.match(dualIntegrityMessage({ ...state, capture_recovered: true }), /本次角度数据已校验恢复/);
+  assert.match(dualIntegrityMessage({ ...state, integrity: { errors: ['部分文件缺失'] } }), /磁盘写入失败.*部分文件缺失/);
+  const updated = reduceDualSessionEvent({}, 'dual_session_state', { ...state, event: 'write_failed' });
+  assert.equal(updated.capture_error, state.capture_error);
+});

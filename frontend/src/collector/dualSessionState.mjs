@@ -1,4 +1,13 @@
 export const ACTIVE_DUAL_SESSION_KEY = 'bodyCollectorActiveDualSession';
+export const OUTPUT_DIRECTORY_KEY = 'bodyCollectorOutputDirectory';
+
+export const readOutputDirectory = (storage = window.localStorage) => {
+  try { return storage.getItem(OUTPUT_DIRECTORY_KEY) || ''; } catch { return ''; }
+};
+
+export const persistOutputDirectory = (path, storage = window.localStorage) => {
+  try { storage.setItem(OUTPUT_DIRECTORY_KEY, path); } catch { /* Session remains usable. */ }
+};
 
 export const readActiveDualSession = (storage = window.localStorage) => {
   try {
@@ -40,10 +49,16 @@ export const dualCaptureWriteBlocked = (state) => (
 export const dualIntegrityMessage = (state) => {
   if (!state) return '';
   const errors = state.integrity?.errors || state.recovery_report?.errors || [];
-  if (errors.length) return errors.join('；');
+  if (errors.length) return [state.capture_error, ...errors].filter(Boolean).join('；');
   if (state.reconciliation_required) return '状态账本或采集文件需要恢复，修复前已禁止继续写入。';
   const recovered = Number(state.recovery_report?.recovered_attempts || 0);
   const promoted = Number(state.recovery_report?.promoted_staging || 0);
+  if (state.capture_error) {
+    const recovery = state.capture_recovered
+      ? ' 本次角度数据已校验恢复，请按当前进度继续，勿重复采集已完成角度。'
+      : ' 请检查输出目录和完整报错，再重新打开任务确认状态。';
+    return state.capture_error + recovery;
+  }
   if (recovered || promoted) {
     return `已自动恢复 ${recovered} 个采集记录，其中 ${promoted} 个从 staging 提升。`;
   }
